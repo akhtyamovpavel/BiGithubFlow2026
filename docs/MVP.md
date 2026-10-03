@@ -1,6 +1,6 @@
 # MVP Сервиса планирования учебного расписания (Schedule Planning Service)
 
-**Репозиторий проекта:** [akhtyamovpavel/BiGithubFlow2026](https://github.com/akhtyamovpavel/BiGithubFlow2026)  
+**Репозиторий проекта:** [akhtyamovpavel/BiGithubFlow2026](https://github.com/akhtyamovpavel/BiGithubFlow2026)
 **Модель ветвления:** GitHub Flow (короткоживущие ветки `feature/*`, PR в `main`, автоматический CI, обязательный Code Review).
 
 ---

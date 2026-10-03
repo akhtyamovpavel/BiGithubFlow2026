@@ -1,7 +1,7 @@
 # Распределение задач MVP между участниками команды
 
-**Проект:** [Сервис планирования расписаний (BiGithubFlow2026)](https://github.com/akhtyamovpavel/BiGithubFlow2026)  
-**Модель процесса:** GitHub Flow  
+**Проект:** [Сервис планирования расписаний (BiGithubFlow2026)](https://github.com/akhtyamovpavel/BiGithubFlow2026)
+**Модель процесса:** GitHub Flow
 **Команда:**
 - **Team Lead** (Архитектура, Инфраструктура, База данных, CI/CD, Сквозная валидация)
 - **Ваня** (Backend-разработчик: Модели данных справочников, Схемы, CRUD API)

@@ -10,7 +10,7 @@ from schedule_service.schemas.health import HealthResponse
 
 
 @asynccontextmanager
-async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
+async def lifespan(_app: FastAPI) -> AsyncGenerator[None, None]:
     """Lifespan context manager to validate configuration on startup."""
     # Instantiating settings validates all environment variables at startup
     _ = get_settings()
