@@ -29,7 +29,9 @@ async def test_base_model_and_sqlite_in_memory() -> None:
     engine, session_maker = create_engine_and_sessionmaker("sqlite+aiosqlite:///:memory:")
 
     async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
+        await conn.run_sync(
+            lambda sync_conn: Base.metadata.create_all(sync_conn, tables=[SampleItem.__table__])
+        )
 
     async with session_maker() as session:
         item = SampleItem(name="Physics 101")
@@ -51,7 +53,9 @@ async def test_get_async_session_commit() -> None:
     engine, session_maker = create_engine_and_sessionmaker("sqlite+aiosqlite:///:memory:")
 
     async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
+        await conn.run_sync(
+            lambda sync_conn: Base.metadata.create_all(sync_conn, tables=[SampleItem.__table__])
+        )
 
     async def custom_dependency() -> AsyncGenerator[AsyncSession, None]:
         async with session_maker() as session:
@@ -85,7 +89,9 @@ async def test_get_async_session_rollback() -> None:
     engine, session_maker = create_engine_and_sessionmaker("sqlite+aiosqlite:///:memory:")
 
     async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
+        await conn.run_sync(
+            lambda sync_conn: Base.metadata.create_all(sync_conn, tables=[SampleItem.__table__])
+        )
 
     async def failing_operation() -> None:
         async with session_maker() as session:

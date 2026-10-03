@@ -6,7 +6,7 @@ import pytest
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 
-from schedule_service.core.database import Base, create_engine_and_sessionmaker
+from schedule_service.core.database import create_engine_and_sessionmaker
 from schedule_service.models.group import Group
 
 
@@ -16,7 +16,7 @@ async def test_create_and_query_group() -> None:
     engine, session_maker = create_engine_and_sessionmaker("sqlite+aiosqlite:///:memory:")
 
     async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
+        await conn.run_sync(lambda sync_conn: Group.__table__.create(sync_conn))
 
     async with session_maker() as session:
         group = Group(
@@ -56,7 +56,7 @@ async def test_group_name_unique_constraint() -> None:
     engine, session_maker = create_engine_and_sessionmaker("sqlite+aiosqlite:///:memory:")
 
     async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
+        await conn.run_sync(lambda sync_conn: Group.__table__.create(sync_conn))
 
     async with session_maker() as session:
         g1 = Group(
