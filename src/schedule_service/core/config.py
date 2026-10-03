@@ -33,6 +33,31 @@ class Settings(BaseSettings):
         default=8000,
         description="Server port",
     )
+    # Database configuration
+    database_url: str = Field(
+        default="postgresql+asyncpg://postgres:postgres@localhost:5432/schedule_db",
+        description="Database connection URL",
+    )
+    postgres_server: str = Field(
+        default="localhost",
+        description="PostgreSQL server host",
+    )
+    postgres_port: int = Field(
+        default=5432,
+        description="PostgreSQL server port",
+    )
+    postgres_user: str = Field(
+        default="postgres",
+        description="PostgreSQL user",
+    )
+    postgres_password: str = Field(
+        default="postgres",
+        description="PostgreSQL password",
+    )
+    postgres_db: str = Field(
+        default="schedule_db",
+        description="PostgreSQL database name",
+    )
 
     model_config = SettingsConfigDict(
         env_file=".env",
