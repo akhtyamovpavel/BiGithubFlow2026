@@ -21,11 +21,23 @@ from schedule_service.schemas.lesson import (
     TimeSlotNestedRead,
     WeekParity,
 )
+from schedule_service.schemas.subject import (
+    SubjectBase,
+    SubjectCreate,
+    SubjectRead,
+    SubjectUpdate,
+)
 from schedule_service.schemas.teacher import (
     TeacherBase,
     TeacherCreate,
     TeacherRead,
     TeacherUpdate,
+)
+from schedule_service.schemas.time_slot import (
+    TimeSlotBase,
+    TimeSlotCreate,
+    TimeSlotRead,
+    TimeSlotUpdate,
 )
 
 __all__ = [
@@ -46,12 +58,20 @@ __all__ = [
     "LessonType",
     "LessonUpdate",
     "ReadinessResponse",
+    "SubjectBase",
+    "SubjectCreate",
     "SubjectNestedRead",
+    "SubjectRead",
+    "SubjectUpdate",
     "TeacherBase",
     "TeacherCreate",
     "TeacherNestedRead",
     "TeacherRead",
     "TeacherUpdate",
+    "TimeSlotBase",
+    "TimeSlotCreate",
     "TimeSlotNestedRead",
+    "TimeSlotRead",
+    "TimeSlotUpdate",
     "WeekParity",
 ]
