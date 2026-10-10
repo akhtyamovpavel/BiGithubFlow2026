@@ -5,6 +5,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import Depends, FastAPI, Response, status
 
+from schedule_service.api.v1.router import api_v1_router
 from schedule_service.core.config import Settings, get_settings
 from schedule_service.core.database import check_database_health
 from schedule_service.schemas.health import HealthResponse, ReadinessResponse
@@ -28,6 +29,8 @@ def create_app() -> FastAPI:
         redoc_url="/redoc",
         lifespan=lifespan,
     )
+
+    app.include_router(api_v1_router)
 
     @app.get(
         "/health",

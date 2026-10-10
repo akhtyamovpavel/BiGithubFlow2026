@@ -76,7 +76,7 @@ def test_docs_endpoint() -> None:
 
 
 def test_openapi_spec() -> None:
-    """Verify OpenAPI JSON schema includes health check and readiness endpoints."""
+    """Verify OpenAPI JSON schema includes health check, groups, and teachers endpoints."""
     response = client.get("/openapi.json")
     assert response.status_code == 200
     data = response.json()
@@ -85,3 +85,7 @@ def test_openapi_spec() -> None:
     assert "/health" in data["paths"]
     assert "/health/live" in data["paths"]
     assert "/health/ready" in data["paths"]
+    assert "/api/v1/groups/" in data["paths"]
+    assert "/api/v1/groups/{group_id}" in data["paths"]
+    assert "/api/v1/teachers/" in data["paths"]
+    assert "/api/v1/teachers/{teacher_id}" in data["paths"]
