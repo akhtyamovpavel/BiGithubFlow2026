@@ -1,5 +1,11 @@
 """Pydantic schemas module."""
 
+from schedule_service.schemas.classroom import (
+    ClassroomBase,
+    ClassroomCreate,
+    ClassroomRead,
+    ClassroomUpdate,
+)
 from schedule_service.schemas.group import GroupBase, GroupCreate, GroupRead, GroupUpdate
 from schedule_service.schemas.health import HealthResponse, ReadinessResponse
 from schedule_service.schemas.lesson import (
@@ -23,7 +29,11 @@ from schedule_service.schemas.teacher import (
 )
 
 __all__ = [
+    "ClassroomBase",
+    "ClassroomCreate",
     "ClassroomNestedRead",
+    "ClassroomRead",
+    "ClassroomUpdate",
     "GroupBase",
     "GroupCreate",
     "GroupNestedRead",
