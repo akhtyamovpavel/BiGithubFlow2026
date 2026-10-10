@@ -49,8 +49,16 @@ RUN addgroup --system --gid 1001 appgroup && \
 COPY --from=builder --chown=appuser:appgroup /app/.venv /app/.venv
 COPY --from=builder --chown=appuser:appgroup /app/src /app/src
 
+# Copy Alembic migration files and configuration
+COPY --chown=appuser:appgroup alembic.ini ./
+COPY --chown=appuser:appgroup alembic/ ./alembic/
+
+# Copy entrypoint script
+COPY --chown=appuser:appgroup scripts/entrypoint.sh /app/scripts/entrypoint.sh
+RUN chmod +x /app/scripts/entrypoint.sh
+
 USER appuser
 
 EXPOSE 8000
 
-CMD ["uvicorn", "schedule_service.main:app", "--host", "0.0.0.0", "--port", "8000"]
+ENTRYPOINT ["/app/scripts/entrypoint.sh"]
