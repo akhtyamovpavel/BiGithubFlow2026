@@ -1,7 +1,7 @@
 """create_subjects_and_time_slots_tables
 
 Revision ID: c6e7e906c2f0
-Revises: c4f1a2d7e9b3
+Revises: d5e2b3c4f6a1
 Create Date: 2026-10-10 20:47:03.827750
 
 """
@@ -13,7 +13,7 @@ from alembic import op
 
 # revision identifiers, used by Alembic.
 revision: str = "c6e7e906c2f0"
-down_revision: str | Sequence[str] | None = "c4f1a2d7e9b3"
+down_revision: str | Sequence[str] | None = "d5e2b3c4f6a1"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
