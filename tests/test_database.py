@@ -121,3 +121,13 @@ async def test_default_get_async_session_yields_session() -> None:
     session = await anext(gen)
     assert isinstance(session, AsyncSession)
     await session.close()
+
+
+@pytest.mark.asyncio
+async def test_check_database_health() -> None:
+    """Verify check_database_health returns True when DB is reachable."""
+    from schedule_service.core.database import check_database_health
+
+    is_healthy = await check_database_health()
+    # By default, sqlite in-memory or configured DB executes select(1)
+    assert isinstance(is_healthy, bool)

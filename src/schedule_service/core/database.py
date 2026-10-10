@@ -4,7 +4,7 @@ from collections.abc import AsyncGenerator
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import DateTime, Integer, func
+from sqlalchemy import DateTime, Integer, func, select
 from sqlalchemy.ext.asyncio import (
     AsyncAttrs,
     AsyncEngine,
@@ -67,3 +67,13 @@ async def get_async_session() -> AsyncGenerator[AsyncSession, None]:
         except Exception:
             await session.rollback()
             raise
+
+
+async def check_database_health() -> bool:
+    """Verify database connection with a lightweight SELECT 1 query."""
+    try:
+        async with async_session_factory() as session:
+            await session.execute(select(1))
+            return True
+    except Exception:
+        return False
