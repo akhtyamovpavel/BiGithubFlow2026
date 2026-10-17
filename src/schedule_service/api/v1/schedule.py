@@ -3,7 +3,7 @@
 import datetime as dt
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from sqlalchemy import and_, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -26,6 +26,12 @@ from schedule_service.schemas.schedule import (
     DaySchedule,
     GroupScheduleResponse,
     TeacherScheduleResponse,
+)
+from schedule_service.services.export_service import (
+    export_group_to_csv,
+    export_group_to_ics,
+    export_teacher_to_csv,
+    export_teacher_to_ics,
 )
 
 router = APIRouter()
@@ -204,4 +210,206 @@ async def get_teacher_schedule(
         parity=parity,
         date=target_date,
         days=days,
+    )
+
+
+@router.get(
+    "/group/{group_id}/export/ics",
+    summary="Export group schedule to iCalendar (.ics)",
+    description=(
+        "Export an academic group's schedule to RFC 5545 iCalendar (.ics) format "
+        "for a specified date range."
+    ),
+    responses={
+        200: {
+            "content": {"text/calendar": {}},
+            "description": "iCalendar (.ics) file attachment",
+        },
+        404: {"description": "Academic group not found"},
+        422: {"description": "Invalid date range"},
+    },
+)
+async def export_group_schedule_ics(
+    group_id: int,
+    start_date: Annotated[
+        dt.date | None,
+        Query(description="Start date of export range (YYYY-MM-DD)"),
+    ] = None,
+    end_date: Annotated[
+        dt.date | None,
+        Query(description="End date of export range (YYYY-MM-DD)"),
+    ] = None,
+    session: SessionDep = None,  # type: ignore[assignment]
+) -> Response:
+    """Export group schedule as an RFC 5545 .ics attachment."""
+    try:
+        ics_bytes = await export_group_to_ics(
+            session,
+            group_id=group_id,
+            start_date=start_date,
+            end_date=end_date,
+        )
+    except LookupError as err:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(err),
+        ) from err
+    except ValueError as err:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=str(err),
+        ) from err
+
+    return Response(
+        content=ics_bytes,
+        media_type="text/calendar",
+        headers={
+            "Content-Disposition": f'attachment; filename="schedule_group_{group_id}.ics"',
+        },
+    )
+
+
+@router.get(
+    "/group/{group_id}/export/csv",
+    summary="Export group schedule to CSV",
+    description=(
+        "Export an academic group's weekly schedule to CSV format with columns: "
+        "День, Время, Предмет, Преподаватель, Аудитория, Тип недели."
+    ),
+    responses={
+        200: {
+            "content": {"text/csv": {}},
+            "description": "CSV file attachment",
+        },
+        404: {"description": "Academic group not found"},
+    },
+)
+async def export_group_schedule_csv(
+    group_id: int,
+    parity: Annotated[
+        WeekParity | None,
+        Query(description="Optional filter by week parity (ODD_WEEK, EVEN_WEEK, ALWAYS)"),
+    ] = None,
+    session: SessionDep = None,  # type: ignore[assignment]
+) -> Response:
+    """Export group schedule as a CSV attachment."""
+    try:
+        csv_text = await export_group_to_csv(
+            session,
+            group_id=group_id,
+            parity=parity,
+        )
+    except LookupError as err:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(err),
+        ) from err
+
+    return Response(
+        content=csv_text,
+        media_type="text/csv",
+        headers={
+            "Content-Disposition": f'attachment; filename="schedule_group_{group_id}.csv"',
+        },
+    )
+
+
+@router.get(
+    "/teacher/{teacher_id}/export/ics",
+    summary="Export teacher schedule to iCalendar (.ics)",
+    description=(
+        "Export a teacher's schedule to RFC 5545 iCalendar (.ics) format "
+        "for a specified date range."
+    ),
+    responses={
+        200: {
+            "content": {"text/calendar": {}},
+            "description": "iCalendar (.ics) file attachment",
+        },
+        404: {"description": "Teacher not found"},
+        422: {"description": "Invalid date range"},
+    },
+)
+async def export_teacher_schedule_ics(
+    teacher_id: int,
+    start_date: Annotated[
+        dt.date | None,
+        Query(description="Start date of export range (YYYY-MM-DD)"),
+    ] = None,
+    end_date: Annotated[
+        dt.date | None,
+        Query(description="End date of export range (YYYY-MM-DD)"),
+    ] = None,
+    session: SessionDep = None,  # type: ignore[assignment]
+) -> Response:
+    """Export teacher schedule as an RFC 5545 .ics attachment."""
+    try:
+        ics_bytes = await export_teacher_to_ics(
+            session,
+            teacher_id=teacher_id,
+            start_date=start_date,
+            end_date=end_date,
+        )
+    except LookupError as err:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(err),
+        ) from err
+    except ValueError as err:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=str(err),
+        ) from err
+
+    return Response(
+        content=ics_bytes,
+        media_type="text/calendar",
+        headers={
+            "Content-Disposition": f'attachment; filename="schedule_teacher_{teacher_id}.ics"',
+        },
+    )
+
+
+@router.get(
+    "/teacher/{teacher_id}/export/csv",
+    summary="Export teacher schedule to CSV",
+    description=(
+        "Export a teacher's weekly schedule to CSV format with columns: "
+        "День, Время, Предмет, Преподаватель, Аудитория, Тип недели."
+    ),
+    responses={
+        200: {
+            "content": {"text/csv": {}},
+            "description": "CSV file attachment",
+        },
+        404: {"description": "Teacher not found"},
+    },
+)
+async def export_teacher_schedule_csv(
+    teacher_id: int,
+    parity: Annotated[
+        WeekParity | None,
+        Query(description="Optional filter by week parity (ODD_WEEK, EVEN_WEEK, ALWAYS)"),
+    ] = None,
+    session: SessionDep = None,  # type: ignore[assignment]
+) -> Response:
+    """Export teacher schedule as a CSV attachment."""
+    try:
+        csv_text = await export_teacher_to_csv(
+            session,
+            teacher_id=teacher_id,
+            parity=parity,
+        )
+    except LookupError as err:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(err),
+        ) from err
+
+    return Response(
+        content=csv_text,
+        media_type="text/csv",
+        headers={
+            "Content-Disposition": f'attachment; filename="schedule_teacher_{teacher_id}.csv"',
+        },
     )
