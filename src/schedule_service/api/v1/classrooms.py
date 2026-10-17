@@ -1,22 +1,67 @@
 """REST API router for classrooms (auditoriums) management."""
 
+import datetime as dt
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from schedule_service.core.database import get_async_session
 from schedule_service.models.classroom import Classroom
+from schedule_service.models.lesson import Lesson, WeekParity
 from schedule_service.schemas.classroom import (
     ClassroomCreate,
     ClassroomRead,
     ClassroomUpdate,
 )
+from schedule_service.services.conflict_service import overlapping_parities
 
 router = APIRouter()
 SessionDep = Annotated[AsyncSession, Depends(get_async_session)]
+
+
+async def query_available_classrooms(
+    session: AsyncSession,
+    *,
+    time_slot_id: int,
+    parity: WeekParity = WeekParity.ALWAYS,
+    target_date: dt.date | None = None,
+    min_capacity: int | None = None,
+    requires_projector: bool | None = None,
+    requires_computers: bool | None = None,
+    building: str | None = None,
+) -> list[Classroom]:
+    """Return active classrooms that have no conflicting lessons in the given time slot."""
+    occupied_subquery = select(Lesson.classroom_id).where(
+        Lesson.time_slot_id == time_slot_id,
+        Lesson.parity.in_(overlapping_parities(parity)),
+    )
+    if target_date is not None:
+        occupied_subquery = occupied_subquery.where(
+            or_(
+                Lesson.specific_date.is_(None),
+                Lesson.specific_date == target_date,
+            )
+        )
+
+    query = select(Classroom).where(
+        Classroom.is_active.is_(True),
+        Classroom.id.not_in(occupied_subquery),
+    )
+    if min_capacity is not None:
+        query = query.where(Classroom.capacity >= min_capacity)
+    if requires_projector is not None:
+        query = query.where(Classroom.has_projector == requires_projector)
+    if requires_computers is not None:
+        query = query.where(Classroom.has_computers == requires_computers)
+    if building is not None and building.strip():
+        query = query.where(Classroom.building == building.strip())
+
+    query = query.order_by(Classroom.id)
+    result = await session.execute(query)
+    return list(result.scalars().all())
 
 
 @router.get(
@@ -72,6 +117,59 @@ async def list_classrooms(
     query = query.order_by(Classroom.id).offset(skip).limit(limit)
     result = await session.execute(query)
     return list(result.scalars().all())
+
+
+@router.get(
+    "/available",
+    response_model=list[ClassroomRead],
+    summary="Find available classrooms for a time slot",
+    description=(
+        "Find active classrooms that are not occupied in the specified time slot "
+        "and match optional capacity and equipment filters."
+    ),
+)
+async def get_available_classrooms_endpoint(
+    time_slot_id: Annotated[
+        int,
+        Query(gt=0, description="Target time slot ID"),
+    ],
+    parity: Annotated[
+        WeekParity,
+        Query(description="Week parity (ALWAYS, ODD_WEEK, EVEN_WEEK)"),
+    ] = WeekParity.ALWAYS,
+    target_date: Annotated[
+        dt.date | None,
+        Query(alias="date", description="Optional specific date (YYYY-MM-DD)"),
+    ] = None,
+    min_capacity: Annotated[
+        int | None,
+        Query(ge=1, description="Minimum required seating capacity"),
+    ] = None,
+    requires_projector: Annotated[
+        bool | None,
+        Query(description="Filter by projector availability"),
+    ] = None,
+    requires_computers: Annotated[
+        bool | None,
+        Query(description="Filter by computer equipment availability"),
+    ] = None,
+    building: Annotated[
+        str | None,
+        Query(description="Filter by building name"),
+    ] = None,
+    session: SessionDep = None,  # type: ignore[assignment]
+) -> list[Classroom]:
+    """Find free classrooms for the given time slot and filters."""
+    return await query_available_classrooms(
+        session,
+        time_slot_id=time_slot_id,
+        parity=parity,
+        target_date=target_date,
+        min_capacity=min_capacity,
+        requires_projector=requires_projector,
+        requires_computers=requires_computers,
+        building=building,
+    )
 
 
 @router.get(

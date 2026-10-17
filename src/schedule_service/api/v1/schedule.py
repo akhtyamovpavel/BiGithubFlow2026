@@ -7,6 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from sqlalchemy import and_, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from schedule_service.api.v1.classrooms import query_available_classrooms
 from schedule_service.core.database import get_async_session
 from schedule_service.models.classroom import Classroom
 from schedule_service.models.group import Group
@@ -14,6 +15,7 @@ from schedule_service.models.lesson import Lesson, WeekParity
 from schedule_service.models.subject import Subject
 from schedule_service.models.teacher import Teacher
 from schedule_service.models.time_slot import TimeSlot
+from schedule_service.schemas.classroom import ClassroomRead
 from schedule_service.schemas.lesson import (
     ClassroomNestedRead,
     GroupNestedRead,
@@ -412,4 +414,58 @@ async def export_teacher_schedule_csv(
         headers={
             "Content-Disposition": f'attachment; filename="schedule_teacher_{teacher_id}.csv"',
         },
+    )
+
+
+@router.get(
+    "/classrooms/available",
+    response_model=list[ClassroomRead],
+    summary="Find available classrooms for a time slot",
+    description=(
+        "Retrieve active classrooms that have no conflicting lessons scheduled "
+        "in the specified time slot (considering week parity and optional specific date), "
+        "filtered by minimum capacity and equipment requirements."
+    ),
+)
+async def get_available_classrooms(
+    time_slot_id: Annotated[
+        int,
+        Query(gt=0, description="Target time slot ID"),
+    ],
+    parity: Annotated[
+        WeekParity,
+        Query(description="Week parity (ALWAYS, ODD_WEEK, EVEN_WEEK)"),
+    ] = WeekParity.ALWAYS,
+    target_date: Annotated[
+        dt.date | None,
+        Query(alias="date", description="Optional specific calendar date (YYYY-MM-DD)"),
+    ] = None,
+    min_capacity: Annotated[
+        int | None,
+        Query(ge=1, description="Minimum required seating capacity"),
+    ] = None,
+    requires_projector: Annotated[
+        bool | None,
+        Query(description="Filter by projector requirement"),
+    ] = None,
+    requires_computers: Annotated[
+        bool | None,
+        Query(description="Filter by computer equipment requirement"),
+    ] = None,
+    building: Annotated[
+        str | None,
+        Query(description="Filter by building name"),
+    ] = None,
+    session: SessionDep = None,  # type: ignore[assignment]
+) -> list[Classroom]:
+    """Find available classrooms for a given time slot and optional filters."""
+    return await query_available_classrooms(
+        session,
+        time_slot_id=time_slot_id,
+        parity=parity,
+        target_date=target_date,
+        min_capacity=min_capacity,
+        requires_projector=requires_projector,
+        requires_computers=requires_computers,
+        building=building,
     )
