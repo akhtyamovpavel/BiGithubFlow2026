@@ -6,6 +6,7 @@ on:
     paths:
       - "frontend/**"
       - "docker-compose.yml"
+      - "docker-compose.prod.yml"
       - "Dockerfile"
       - ".dockerignore"
       - "alembic/**"
@@ -20,6 +21,7 @@ on:
     paths:
       - "frontend/**"
       - "docker-compose.yml"
+      - "docker-compose.prod.yml"
       - "Dockerfile"
       - ".dockerignore"
       - "alembic/**"
@@ -41,7 +43,7 @@ jobs:
         working-directory: frontend
     steps:
       - uses: actions/checkout@v4
-      - run: docker compose config --quiet
+      - run: docker compose config --quiet && POSTGRES_PASSWORD=dummy docker compose -f docker-compose.prod.yml config --quiet
         working-directory: .
       - uses: actions/setup-node@v4
         with:

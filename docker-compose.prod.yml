@@ -45,5 +45,17 @@ services:
       retries: 3
       start_period: 10s
 
+  frontend:
+    image: ${FRONTEND_DOCKER_IMAGE:-ghcr.io/akhtyamovpavel/bigithubflow2026-frontend:latest}
+    container_name: schedule_frontend
+    restart: always
+    ports:
+      - "${FRONTEND_PORT:-8080}:80"
+    environment:
+      BACKEND_URL: http://app:8000
+    depends_on:
+      app:
+        condition: service_healthy
+
 volumes:
   postgres_data:
