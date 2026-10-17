@@ -16,10 +16,23 @@ from schedule_service.services.conflict_service import (
     validate_classroom_capacity,
     validate_lesson,
 )
+from schedule_service.services.export_service import (
+    CSV_COLUMNS,
+    DAY_NAMES_RU,
+    CalendarExportService,
+    date_week_parity,
+    export_group_to_csv,
+    export_group_to_ics,
+    export_teacher_to_csv,
+    export_teacher_to_ics,
+)
 
 __all__ = [
+    "CSV_COLUMNS",
+    "CalendarExportService",
     "ClassroomCapacityExceededError",
     "ConflictType",
+    "DAY_NAMES_RU",
     "LessonConflictData",
     "ScheduleConflict",
     "ScheduleConflictException",
@@ -28,6 +41,11 @@ __all__ = [
     "check_classroom_conflict",
     "check_group_conflict",
     "check_teacher_conflict",
+    "date_week_parity",
+    "export_group_to_csv",
+    "export_group_to_ics",
+    "export_teacher_to_csv",
+    "export_teacher_to_ics",
     "overlapping_parities",
     "parities_overlap",
     "validate_classroom_capacity",
