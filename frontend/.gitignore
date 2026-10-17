@@ -4,3 +4,5 @@ dist/
 playwright-report/
 test-results/
 .env.local
+!src/lib/
+!src/lib/**
