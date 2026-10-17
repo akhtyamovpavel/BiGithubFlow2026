@@ -3,10 +3,10 @@ name: Frontend CI
 on:
   push:
     branches: [main]
-    paths: ["frontend/**", ".github/workflows/frontend.yml"]
+    paths: ["frontend/**", "docker-compose.yml", ".github/workflows/frontend.yml"]
   pull_request:
     branches: [main]
-    paths: ["frontend/**", ".github/workflows/frontend.yml"]
+    paths: ["frontend/**", "docker-compose.yml", ".github/workflows/frontend.yml"]
 
 permissions:
   contents: read
@@ -19,6 +19,8 @@ jobs:
         working-directory: frontend
     steps:
       - uses: actions/checkout@v4
+      - run: docker compose config --quiet
+        working-directory: .
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
