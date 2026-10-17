@@ -1,4 +1,4 @@
-"""Unit tests for teacher conflict detection (issue #11)."""
+"""Unit tests for teacher and classroom conflict detection (issues #11, #12)."""
 
 from collections.abc import AsyncGenerator
 from datetime import date
@@ -10,16 +10,24 @@ from sqlalchemy import Column, Integer, Table
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from schedule_service.core.database import Base, create_engine_and_sessionmaker
+from schedule_service.models.classroom import Classroom
+from schedule_service.models.group import Group
 from schedule_service.models.lesson import Lesson, LessonType, WeekParity
 from schedule_service.services.conflict_service import (
+    ClassroomCapacityExceededError,
     ConflictType,
+    check_classroom_capacity,
+    check_classroom_conflict,
     check_teacher_conflict,
     overlapping_parities,
     parities_overlap,
+    validate_classroom_capacity,
 )
 
 TEACHER = 1
 OTHER_TEACHER = 2
+CLASSROOM = 1
+OTHER_CLASSROOM = 2
 SLOT = 10
 OTHER_SLOT = 11
 DATE = date(2026, 10, 5)
@@ -27,6 +35,8 @@ OTHER_DATE = date(2026, 10, 12)
 
 _FK_TARGET_TABLES = ("subjects", "teachers", "groups", "classrooms", "time_slots")
 _group_ids = count(1)
+_room_numbers = count(101)
+_group_names = count(1)
 
 
 def _ensure_fk_target_tables() -> None:
@@ -56,6 +66,8 @@ async def _add_lesson(
     session: AsyncSession,
     *,
     teacher_id: int = TEACHER,
+    classroom_id: int = CLASSROOM,
+    group_id: int | None = None,
     time_slot_id: int = SLOT,
     parity: WeekParity = WeekParity.ALWAYS,
     specific_date: date | None = None,
@@ -63,8 +75,8 @@ async def _add_lesson(
     lesson = Lesson(
         subject_id=1,
         teacher_id=teacher_id,
-        group_id=next(_group_ids),
-        classroom_id=1,
+        group_id=group_id if group_id is not None else next(_group_ids),
+        classroom_id=classroom_id,
         time_slot_id=time_slot_id,
         lesson_type=LessonType.LECTURE,
         parity=parity,
@@ -73,6 +85,42 @@ async def _add_lesson(
     session.add(lesson)
     await session.flush()
     return lesson
+
+
+async def _add_classroom(
+    session: AsyncSession,
+    *,
+    capacity: int = 30,
+    building: str = "Main",
+    room_number: str | None = None,
+) -> Classroom:
+    classroom = Classroom(
+        building=building,
+        room_number=room_number or str(next(_room_numbers)),
+        capacity=capacity,
+    )
+    session.add(classroom)
+    await session.flush()
+    return classroom
+
+
+async def _add_group(
+    session: AsyncSession,
+    *,
+    student_count: int = 25,
+    name: str | None = None,
+    faculty: str = "CS",
+    course_number: int = 2,
+) -> Group:
+    group = Group(
+        name=name or f"BI-2026-{next(_group_names)}",
+        faculty=faculty,
+        course_number=course_number,
+        student_count=student_count,
+    )
+    session.add(group)
+    await session.flush()
+    return group
 
 
 # ---------------------------------------------------------------------------
@@ -238,3 +286,172 @@ async def test_exclude_lesson_id_keeps_other_conflicts(session: AsyncSession) ->
     )
 
     assert [c.conflicting_lesson_id for c in conflicts] == [other.id]
+
+
+# ---------------------------------------------------------------------------
+# Classroom conflict and capacity checks (issue #12)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_no_classroom_conflict_on_empty_schedule(session: AsyncSession) -> None:
+    assert await check_classroom_conflict(session, CLASSROOM, SLOT, _A, None) == []
+
+
+@pytest.mark.asyncio
+async def test_classroom_occupied_by_another_lesson_conflicts(session: AsyncSession) -> None:
+    existing = await _add_lesson(session, classroom_id=CLASSROOM, time_slot_id=SLOT, parity=_A)
+
+    conflicts = await check_classroom_conflict(session, CLASSROOM, SLOT, _A, None)
+
+    assert len(conflicts) == 1
+    assert conflicts[0].conflict_type is ConflictType.CLASSROOM_BUSY
+    assert conflicts[0].conflicting_lesson_id == existing.id
+    assert f"Classroom {CLASSROOM}" in conflicts[0].message
+
+
+@pytest.mark.asyncio
+async def test_other_slot_or_other_classroom_does_not_conflict(session: AsyncSession) -> None:
+    await _add_lesson(session, classroom_id=CLASSROOM, time_slot_id=OTHER_SLOT)
+    await _add_lesson(session, classroom_id=OTHER_CLASSROOM, time_slot_id=SLOT)
+
+    assert await check_classroom_conflict(session, CLASSROOM, SLOT, _A, None) == []
+
+
+@pytest.mark.parametrize(
+    ("existing_parity", "new_parity", "expected_conflict"),
+    [
+        (_A, _A, True),
+        (_A, _O, True),
+        (_A, _E, True),
+        (_O, _A, True),
+        (_O, _O, True),
+        (_O, _E, False),
+        (_E, _A, True),
+        (_E, _O, False),
+        (_E, _E, True),
+    ],
+)
+@pytest.mark.asyncio
+async def test_classroom_recurring_parity_matrix(
+    session: AsyncSession,
+    existing_parity: WeekParity,
+    new_parity: WeekParity,
+    expected_conflict: bool,
+) -> None:
+    await _add_lesson(session, classroom_id=CLASSROOM, parity=existing_parity)
+
+    conflicts = await check_classroom_conflict(session, CLASSROOM, SLOT, new_parity, None)
+
+    assert bool(conflicts) is expected_conflict
+
+
+@pytest.mark.asyncio
+async def test_classroom_one_off_lessons_conflict_rules(session: AsyncSession) -> None:
+    one_off = await _add_lesson(session, classroom_id=CLASSROOM, specific_date=DATE)
+
+    same_date_conflicts = await check_classroom_conflict(session, CLASSROOM, SLOT, _A, DATE)
+    assert len(same_date_conflicts) == 1
+    assert same_date_conflicts[0].conflicting_lesson_id == one_off.id
+    assert DATE.isoformat() in same_date_conflicts[0].message
+
+    assert await check_classroom_conflict(session, CLASSROOM, SLOT, _A, OTHER_DATE) == []
+    assert len(await check_classroom_conflict(session, CLASSROOM, SLOT, _A, None)) == 1
+
+
+@pytest.mark.asyncio
+async def test_classroom_exclude_lesson_id_prevents_self_conflict(session: AsyncSession) -> None:
+    lesson = await _add_lesson(session, classroom_id=CLASSROOM)
+
+    conflicts = await check_classroom_conflict(
+        session, CLASSROOM, SLOT, _A, None, exclude_lesson_id=lesson.id
+    )
+
+    assert conflicts == []
+
+
+@pytest.mark.asyncio
+async def test_classroom_free_and_capacity_sufficient(session: AsyncSession) -> None:
+    classroom = await _add_classroom(session, capacity=30)
+    group = await _add_group(session, student_count=25)
+
+    conflicts = await check_classroom_conflict(
+        session,
+        classroom.id,
+        SLOT,
+        _A,
+        None,
+        group_id=group.id,
+    )
+
+    assert conflicts == []
+
+
+@pytest.mark.asyncio
+async def test_classroom_free_and_exact_capacity_sufficient(session: AsyncSession) -> None:
+    classroom = await _add_classroom(session, capacity=30)
+    group = await _add_group(session, student_count=30)
+
+    validate_classroom_capacity(classroom, group)
+    await check_classroom_capacity(session, classroom.id, group.id)
+    assert (
+        await check_classroom_conflict(
+            session,
+            classroom.id,
+            SLOT,
+            _A,
+            None,
+            group_id=group.id,
+        )
+        == []
+    )
+
+
+@pytest.mark.asyncio
+async def test_classroom_free_but_insufficient_capacity_raises_with_deficit(
+    session: AsyncSession,
+) -> None:
+    classroom = await _add_classroom(session, capacity=20)
+    group = await _add_group(session, student_count=28)
+
+    with pytest.raises(ClassroomCapacityExceededError) as exc_info:
+        await check_classroom_conflict(
+            session,
+            classroom.id,
+            SLOT,
+            _A,
+            None,
+            group_id=group.id,
+        )
+
+    err = exc_info.value
+    assert err.classroom_id == classroom.id
+    assert err.group_id == group.id
+    assert err.capacity == 20
+    assert err.student_count == 28
+    assert err.deficit == 8
+    assert "8" in str(err)
+    assert "deficit" in str(err)
+
+
+def test_validate_classroom_capacity_directly_raises_with_deficit() -> None:
+    classroom = Classroom(id=5, building="A", room_number="101", capacity=15)
+    group = Group(id=7, name="BI-1", faculty="CS", course_number=1, student_count=22)
+
+    with pytest.raises(ClassroomCapacityExceededError) as exc_info:
+        validate_classroom_capacity(classroom, group)
+
+    assert exc_info.value.deficit == 7
+    assert exc_info.value.capacity == 15
+    assert exc_info.value.student_count == 22
+
+
+@pytest.mark.asyncio
+async def test_check_classroom_capacity_missing_entities(session: AsyncSession) -> None:
+    classroom = await _add_classroom(session, capacity=30)
+
+    with pytest.raises(ValueError, match="Classroom 9999 not found"):
+        await check_classroom_capacity(session, 9999, 1)
+
+    with pytest.raises(ValueError, match="Group 9999 not found"):
+        await check_classroom_capacity(session, classroom.id, 9999)
