@@ -4,6 +4,7 @@ from fastapi import APIRouter
 
 from schedule_service.api.v1.classrooms import router as classrooms_router
 from schedule_service.api.v1.groups import router as groups_router
+from schedule_service.api.v1.lessons import router as lessons_router
 from schedule_service.api.v1.schedule import router as schedule_router
 from schedule_service.api.v1.subjects import router as subjects_router
 from schedule_service.api.v1.teachers import router as teachers_router
@@ -35,6 +36,11 @@ api_v1_router.include_router(
     time_slots_router,
     prefix="/time-slots",
     tags=["Time Slots"],
+)
+api_v1_router.include_router(
+    lessons_router,
+    prefix="/lessons",
+    tags=["Lessons"],
 )
 api_v1_router.include_router(
     schedule_router,
