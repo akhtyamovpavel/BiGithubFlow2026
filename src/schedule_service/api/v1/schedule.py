@@ -51,6 +51,7 @@ async def _fetch_days_schedule(
     """Fetch lessons with joined entities and group by day of the week (1..6)."""
     query = (
         select(Lesson, Subject, Teacher, Group, Classroom, TimeSlot)
+        .select_from(Lesson)
         .join(Subject, Lesson.subject_id == Subject.id)
         .join(Teacher, Lesson.teacher_id == Teacher.id)
         .join(Group, Lesson.group_id == Group.id)

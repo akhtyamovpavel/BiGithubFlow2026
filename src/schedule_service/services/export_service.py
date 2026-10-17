@@ -91,6 +91,7 @@ async def _fetch_lessons_for_export(
     """Fetch lessons with joined reference entities ordered by day and slot."""
     query = (
         select(Lesson, Subject, Teacher, Group, Classroom, TimeSlot)
+        .select_from(Lesson)
         .join(Subject, Lesson.subject_id == Subject.id)
         .join(Teacher, Lesson.teacher_id == Teacher.id)
         .join(Group, Lesson.group_id == Group.id)

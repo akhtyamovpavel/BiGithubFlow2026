@@ -37,7 +37,7 @@ FROM python:3.12-slim AS runtime
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
     PATH="/app/.venv/bin:$PATH" \
-    PYTHONPATH="/app/src"
+    PYTHONPATH="/app:/app/src"
 
 WORKDIR /app
 
@@ -53,8 +53,8 @@ COPY --from=builder --chown=appuser:appgroup /app/src /app/src
 COPY --chown=appuser:appgroup alembic.ini ./
 COPY --chown=appuser:appgroup alembic/ ./alembic/
 
-# Copy entrypoint script
-COPY --chown=appuser:appgroup scripts/entrypoint.sh /app/scripts/entrypoint.sh
+# Copy scripts package and entrypoint
+COPY --chown=appuser:appgroup scripts/ /app/scripts/
 RUN chmod +x /app/scripts/entrypoint.sh
 
 USER appuser
