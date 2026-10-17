@@ -1,0 +1,85 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+
+@custom-variant dark (&:is(.dark *));
+
+@theme inline {
+  --font-sans: "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--foreground);
+  --color-popover: var(--card);
+  --color-popover-foreground: var(--foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: #ffffff;
+  --color-secondary: #edf1ef;
+  --color-secondary-foreground: #253d33;
+  --color-muted: #f0f3f1;
+  --color-muted-foreground: #63706a;
+  --color-accent: #eaf2ee;
+  --color-accent-foreground: #174b37;
+  --color-destructive: #b42332;
+  --color-border: #dfe6e2;
+  --color-input: #cbd5cf;
+  --color-ring: #227b5b;
+}
+
+:root {
+  color-scheme: light;
+  --radius: 0.625rem;
+  --background: #f7f9f8;
+  --foreground: #202e27;
+  --card: #ffffff;
+  --primary: #17624b;
+  --popover: #ffffff;
+  --popover-foreground: #202e27;
+  --border: #dfe6e2;
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  body {
+    @apply m-0 bg-background font-sans text-foreground antialiased;
+  }
+  button,
+  a,
+  input,
+  [tabindex="0"] {
+    @apply focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring;
+  }
+  button:not(:disabled),
+  [role="combobox"]:not(:disabled) {
+    cursor: pointer;
+  }
+  [data-slot="button"] {
+    transition-property: color, background-color, border-color, scale;
+    transition-duration: 150ms;
+    transition-timing-function: cubic-bezier(0.2, 0, 0, 1);
+  }
+  [data-slot="button"]:active:not(:disabled) {
+    scale: 0.96;
+  }
+  .schedule-row {
+    display: grid;
+    grid-template-columns: 76px repeat(6, minmax(0, 1fr));
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+  [data-slot="button"]:active:not(:disabled) {
+    scale: 1;
+  }
+}
