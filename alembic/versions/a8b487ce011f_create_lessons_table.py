@@ -20,6 +20,8 @@ depends_on: str | Sequence[str] | None = None
 
 def upgrade() -> None:
     """Upgrade schema to include lessons table."""
+    # PostgreSQL references are added in e7f8a9b0c1d2 after lookup tables exist.
+    # SQLite keeps these inline because it cannot add foreign keys with ALTER TABLE.
     op.create_table(
         "lessons",
         sa.Column("id", sa.Integer(), autoincrement=True, nullable=False),
@@ -47,26 +49,31 @@ def upgrade() -> None:
             ["subject_id"],
             ["subjects.id"],
             ondelete="CASCADE",
+            use_alter=True,
         ),
         sa.ForeignKeyConstraint(
             ["teacher_id"],
             ["teachers.id"],
             ondelete="CASCADE",
+            use_alter=True,
         ),
         sa.ForeignKeyConstraint(
             ["group_id"],
             ["groups.id"],
             ondelete="CASCADE",
+            use_alter=True,
         ),
         sa.ForeignKeyConstraint(
             ["classroom_id"],
             ["classrooms.id"],
             ondelete="CASCADE",
+            use_alter=True,
         ),
         sa.ForeignKeyConstraint(
             ["time_slot_id"],
             ["time_slots.id"],
             ondelete="CASCADE",
+            use_alter=True,
         ),
         sa.PrimaryKeyConstraint("id"),
     )

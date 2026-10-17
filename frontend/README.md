@@ -48,7 +48,7 @@ npx playwright install chromium
 npm test
 ```
 
-Playwright сам собирает приложение и запускает сервер сборки. Тесты используют изолированный браузер и подменяют HTTP API: проверяют CRUD, валидацию, 404/409/422, пагинацию, фильтры, сетевые ошибки, деморежим, настоящее и пустое расписание, мобильную навигацию. Для установленного Chrome можно выполнить `PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH=/usr/bin/google-chrome npm test` без загрузки Chromium. Проверки запускаются в `.github/workflows/frontend.yml` для изменений фронтенда.
+Playwright сам собирает приложение и запускает сервер сборки. Тесты используют изолированный браузер и подменяют HTTP API: проверяют CRUD, валидацию, 404/409/422, пагинацию, фильтры, сетевые ошибки, деморежим, настоящее и пустое расписание, мобильную навигацию. Для установленного Chrome можно выполнить `PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH=/usr/bin/google-chrome npm test` без загрузки Chromium. Проверки запускаются в `.github/workflows/frontend.yml`. Отдельная задача CI собирает весь Compose и проверяет SPA-маршруты и API через Nginx на чистой PostgreSQL.
 
 ## Docker
 

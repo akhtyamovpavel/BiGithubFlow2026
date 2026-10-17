@@ -3,10 +3,32 @@ name: Frontend CI
 on:
   push:
     branches: [main]
-    paths: ["frontend/**", "docker-compose.yml", ".github/workflows/frontend.yml"]
+    paths:
+      - "frontend/**"
+      - "docker-compose.yml"
+      - "Dockerfile"
+      - ".dockerignore"
+      - "alembic/**"
+      - "alembic.ini"
+      - "src/**"
+      - "scripts/entrypoint.sh"
+      - "pyproject.toml"
+      - "poetry.lock"
+      - ".github/workflows/frontend.yml"
   pull_request:
     branches: [main]
-    paths: ["frontend/**", "docker-compose.yml", ".github/workflows/frontend.yml"]
+    paths:
+      - "frontend/**"
+      - "docker-compose.yml"
+      - "Dockerfile"
+      - ".dockerignore"
+      - "alembic/**"
+      - "alembic.ini"
+      - "src/**"
+      - "scripts/entrypoint.sh"
+      - "pyproject.toml"
+      - "poetry.lock"
+      - ".github/workflows/frontend.yml"
 
 permissions:
   contents: read
@@ -30,3 +52,24 @@ jobs:
       - run: npm run lint
       - run: npx playwright install --with-deps chromium
       - run: npm test
+
+  compose:
+    name: Compose integration
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Start stack with a fresh PostgreSQL database
+        run: docker compose up --build -d --wait --wait-timeout 120
+      - name: Check SPA routes and API through Nginx
+        run: |
+          curl --fail --silent --show-error http://localhost:8080/groups
+          curl --fail --silent --show-error http://localhost:8080/teachers
+          curl --fail --silent --show-error http://localhost:8080/health/ready
+          curl --fail --silent --show-error http://localhost:8080/api/v1/groups/
+          curl --fail --silent --show-error http://localhost:8080/api/v1/teachers/
+      - name: Show container logs on failure
+        if: failure()
+        run: docker compose logs --no-color
+      - name: Stop stack
+        if: always()
+        run: docker compose down --volumes
