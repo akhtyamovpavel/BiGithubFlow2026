@@ -1,0 +1,106 @@
+name: Playwright E2E Tests
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  e2e:
+    name: Full-Stack E2E (PostgreSQL + FastAPI + React/Nginx)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install frontend dependencies and Playwright Chromium
+        working-directory: frontend
+        run: |
+          npm ci
+          npx playwright install --with-deps chromium ffmpeg
+
+      - name: Start full stack with Docker Compose
+        run: docker compose up -d --build --wait --wait-timeout 120
+
+      - name: Wait for healthchecks (/health/ready and http://localhost:8080)
+        run: |
+          curl --fail --silent --show-error --retry 15 --retry-delay 2 --retry-all-errors http://localhost:8000/health/ready
+          curl --fail --silent --show-error --retry 15 --retry-delay 2 --retry-all-errors http://localhost:8080/health/ready
+          curl --fail --silent --show-error --retry 15 --retry-delay 2 --retry-all-errors http://localhost:8080/ > /dev/null
+
+      - name: Apply Alembic migrations and seed demonstration data
+        run: |
+          docker compose exec -T app alembic upgrade head
+          docker compose exec -T app python -m scripts.seed_demo_data
+
+      - name: Run Playwright E2E tests
+        working-directory: frontend
+        run: xvfb-run --auto-servernum npx playwright test
+
+      - name: Collect and assemble E2E demo videos
+        if: always()
+        working-directory: frontend
+        run: |
+          mkdir -p demo-videos
+          idx=1
+          > demo-videos/concat.txt
+          for v in $(find test-results -name "video.webm" | sort); do
+            dir_name=$(basename "$(dirname "$v")")
+            cp "$v" "demo-videos/0${idx}-${dir_name}.webm"
+            echo "file '$(pwd)/demo-videos/0${idx}-${dir_name}.webm'" >> demo-videos/concat.txt
+            idx=$((idx + 1))
+          done
+          if [ -s demo-videos/concat.txt ] && command -v ffmpeg >/dev/null 2>&1; then
+            ffmpeg -y -f concat -safe 0 -i demo-videos/concat.txt -c copy demo-videos/e2e-full-demo.webm || true
+            ffmpeg -y -i demo-videos/e2e-full-demo.webm -c:v libx264 -pix_fmt yuv420p -movflags +faststart demo-videos/e2e-full-demo.mp4 || true
+          fi
+          rm -f demo-videos/concat.txt
+
+      - name: Export Docker Compose container logs
+        if: always()
+        run: docker compose logs --no-color > docker-compose.log
+
+      - name: Upload Playwright HTML report artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: frontend/playwright-report/
+          retention-days: 14
+
+      - name: Upload Playwright E2E demo videos artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-demo-videos
+          path: |
+            frontend/demo-videos/
+            frontend/test-results/**/*.webm
+          retention-days: 14
+
+      - name: Upload Docker Compose logs artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: docker-compose-logs
+          path: docker-compose.log
+          retention-days: 14
+
+      - name: Stop Docker Compose stack
+        if: always()
+        run: docker compose down --volumes

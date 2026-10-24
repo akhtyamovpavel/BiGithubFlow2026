@@ -1,7 +1,23 @@
 import fs from "node:fs"
+import os from "node:os"
+import path from "node:path"
 import { chromium, defineConfig, devices } from "@playwright/test"
 
 const baseURL = process.env.PLAYWRIGHT_BASE_URL || "http://localhost:8080"
+const slowMo = Number(process.env.PLAYWRIGHT_SLOW_MO || "150")
+
+function ensureFfmpegBinary(): void {
+  const pwFfmpegDir = path.join(os.homedir(), ".cache", "ms-playwright", "ffmpeg-1013")
+  const pwFfmpegBin = path.join(pwFfmpegDir, "ffmpeg-linux")
+  if (!fs.existsSync(pwFfmpegBin) && fs.existsSync("/usr/bin/ffmpeg")) {
+    try {
+      fs.mkdirSync(pwFfmpegDir, { recursive: true })
+      fs.symlinkSync("/usr/bin/ffmpeg", pwFfmpegBin)
+    } catch {
+      // Ignore if cache directory is not writable
+    }
+  }
+}
 
 function resolveExecutablePath(): string | undefined {
   if (process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH) {
@@ -21,6 +37,8 @@ function resolveExecutablePath(): string | undefined {
   return undefined
 }
 
+ensureFfmpegBinary()
+
 export default defineConfig({
   testDir: "./e2e",
   fullyParallel: false,
@@ -31,8 +49,13 @@ export default defineConfig({
   use: {
     baseURL,
     headless: false,
+    viewport: { width: 1280, height: 720 },
     screenshot: "only-on-failure",
     trace: "on-first-retry",
+    video: {
+      mode: "on",
+      size: { width: 1280, height: 720 },
+    },
   },
   projects: [
     {
@@ -40,7 +63,11 @@ export default defineConfig({
       use: {
         ...devices["Desktop Chrome"],
         headless: false,
-        launchOptions: { executablePath: resolveExecutablePath() },
+        viewport: { width: 1280, height: 720 },
+        launchOptions: {
+          executablePath: resolveExecutablePath(),
+          slowMo,
+        },
       },
     },
   ],
