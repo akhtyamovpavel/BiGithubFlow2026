@@ -1,7 +1,14 @@
 import { useState } from "react"
 import { useForm } from "react-hook-form"
 import { toast } from "sonner"
-import { ApiError, errorMessage, groupsApi, teachersApi } from "@/lib/api"
+import {
+  ApiError,
+  classroomsApi,
+  errorMessage,
+  groupsApi,
+  subjectsApi,
+  teachersApi,
+} from "@/lib/api"
 import type { DirectoryRecord, Resource } from "@/lib/models"
 import { Button } from "@/components/ui/button"
 import {
@@ -32,11 +39,23 @@ interface FormValues {
   email: string
   department: string
   position: string
+  building: string
+  room_number: string
+  capacity: string
+  has_projector: boolean
+  has_computers: boolean
+  code: string
+  description: string
   is_active: boolean
 }
 
+type TextFieldName = Exclude<
+  keyof FormValues,
+  "is_active" | "has_projector" | "has_computers"
+>
+
 interface FieldDefinition {
-  name: Exclude<keyof FormValues, "is_active">
+  name: TextFieldName
   label: string
   required?: boolean
   maxLength?: number
@@ -79,6 +98,18 @@ const teacherFields: FieldDefinition[] = [
   { name: "position", label: "Должность", maxLength: 128 },
 ]
 
+const classroomFields: FieldDefinition[] = [
+  { name: "building", label: "Корпус", required: true, maxLength: 128 },
+  { name: "room_number", label: "Номер аудитории", required: true, maxLength: 64 },
+  { name: "capacity", label: "Вместимость", required: true, min: 1, type: "number" },
+]
+
+const subjectFields: FieldDefinition[] = [
+  { name: "name", label: "Название предмета", required: true, maxLength: 255 },
+  { name: "code", label: "Код дисциплины", maxLength: 64 },
+  { name: "description", label: "Описание", maxLength: 2000 },
+]
+
 export function RecordDialog({
   resource,
   record,
@@ -90,13 +121,19 @@ export function RecordDialog({
   onClose: () => void
   onSaved: () => void
 }) {
-  const isGroup = resource === "groups"
   let fields = teacherFields
   let noun = "преподавателя"
-  if (isGroup) {
+  if (resource === "groups") {
     fields = groupFields
     noun = "группу"
+  } else if (resource === "classrooms") {
+    fields = classroomFields
+    noun = "аудиторию"
+  } else if (resource === "subjects") {
+    fields = subjectFields
+    noun = "предмет"
   }
+
   const initial: FormValues = {
     name: "",
     faculty: "",
@@ -106,9 +143,16 @@ export function RecordDialog({
     email: "",
     department: "",
     position: "",
+    building: "",
+    room_number: "",
+    capacity: "30",
+    has_projector: false,
+    has_computers: false,
+    code: "",
+    description: "",
     is_active: true,
   }
-  if (record && "name" in record) {
+  if (record && "faculty" in record) {
     initial.name = record.name
     initial.faculty = record.faculty
     initial.course_number = String(record.course_number)
@@ -122,6 +166,20 @@ export function RecordDialog({
     initial.position = record.position || ""
     initial.is_active = record.is_active
   }
+  if (record && "building" in record) {
+    initial.building = record.building
+    initial.room_number = record.room_number
+    initial.capacity = String(record.capacity)
+    initial.has_projector = record.has_projector
+    initial.has_computers = record.has_computers
+    initial.is_active = record.is_active
+  }
+  if (record && "description" in record) {
+    initial.name = record.name
+    initial.code = record.code || ""
+    initial.description = record.description || ""
+  }
+
   const form = useForm<FormValues>({ defaultValues: initial })
   const [error, setError] = useState("")
   const busy = form.formState.isSubmitting
@@ -129,7 +187,7 @@ export function RecordDialog({
   async function save(values: FormValues) {
     setError("")
     try {
-      if (isGroup) {
+      if (resource === "groups") {
         await groupsApi.save(
           {
             name: values.name.trim(),
@@ -140,7 +198,7 @@ export function RecordDialog({
           },
           record?.id,
         )
-      } else {
+      } else if (resource === "teachers") {
         await teachersApi.save(
           {
             full_name: values.full_name.trim().replace(/\s+/g, " "),
@@ -148,6 +206,27 @@ export function RecordDialog({
             department: values.department.trim(),
             position: values.position.trim() || null,
             is_active: values.is_active,
+          },
+          record?.id,
+        )
+      } else if (resource === "classrooms") {
+        await classroomsApi.save(
+          {
+            building: values.building.trim(),
+            room_number: values.room_number.trim(),
+            capacity: Number(values.capacity),
+            has_projector: values.has_projector,
+            has_computers: values.has_computers,
+            is_active: values.is_active,
+          },
+          record?.id,
+        )
+      } else {
+        await subjectsApi.save(
+          {
+            name: values.name.trim(),
+            code: values.code.trim() || null,
+            description: values.description.trim(),
           },
           record?.id,
         )
@@ -166,13 +245,31 @@ export function RecordDialog({
           }
         }
         if (failure.status === 409) {
-          let field: "name" | "email" = "email"
-          let message = "Преподаватель с таким email уже существует."
-          if (isGroup) {
-            field = "name"
-            message = "Группа с таким шифром уже существует."
+          if (resource === "groups") {
+            form.setError(
+              "name",
+              { message: "Группа с таким шифром уже существует." },
+              { shouldFocus: true },
+            )
+          } else if (resource === "teachers") {
+            form.setError(
+              "email",
+              { message: "Преподаватель с таким email уже существует." },
+              { shouldFocus: true },
+            )
+          } else if (resource === "classrooms") {
+            form.setError(
+              "room_number",
+              { message: "Аудитория с таким номером в этом корпусе уже существует." },
+              { shouldFocus: true },
+            )
+          } else {
+            form.setError(
+              "name",
+              { message: "Предмет с таким названием или кодом уже существует." },
+              { shouldFocus: true },
+            )
           }
-          form.setError(field, { message }, { shouldFocus: true })
         }
       }
     }
@@ -262,26 +359,72 @@ export function RecordDialog({
                   )}
                 />
               ))}
-              <FormField
-                control={form.control}
-                name="is_active"
-                render={({ field }) => (
-                  <FormItem className="flex items-center gap-3 rounded-md border p-3">
-                    <FormControl>
-                      <input
-                        type="checkbox"
-                        checked={field.value}
-                        onChange={field.onChange}
-                        ref={field.ref}
-                        name={field.name}
-                        onBlur={field.onBlur}
-                        className="size-4 accent-primary"
-                      />
-                    </FormControl>
-                    <FormLabel>Активная запись</FormLabel>
-                  </FormItem>
-                )}
-              />
+              {resource === "classrooms" && (
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <FormField
+                    control={form.control}
+                    name="has_projector"
+                    render={({ field }) => (
+                      <FormItem className="flex items-center gap-3 rounded-md border p-3">
+                        <FormControl>
+                          <input
+                            type="checkbox"
+                            checked={field.value}
+                            onChange={field.onChange}
+                            ref={field.ref}
+                            name={field.name}
+                            onBlur={field.onBlur}
+                            className="size-4 accent-primary"
+                          />
+                        </FormControl>
+                        <FormLabel>Проектор</FormLabel>
+                      </FormItem>
+                    )}
+                  />
+                  <FormField
+                    control={form.control}
+                    name="has_computers"
+                    render={({ field }) => (
+                      <FormItem className="flex items-center gap-3 rounded-md border p-3">
+                        <FormControl>
+                          <input
+                            type="checkbox"
+                            checked={field.value}
+                            onChange={field.onChange}
+                            ref={field.ref}
+                            name={field.name}
+                            onBlur={field.onBlur}
+                            className="size-4 accent-primary"
+                          />
+                        </FormControl>
+                        <FormLabel>Компьютеры</FormLabel>
+                      </FormItem>
+                    )}
+                  />
+                </div>
+              )}
+              {resource !== "subjects" && (
+                <FormField
+                  control={form.control}
+                  name="is_active"
+                  render={({ field }) => (
+                    <FormItem className="flex items-center gap-3 rounded-md border p-3">
+                      <FormControl>
+                        <input
+                          type="checkbox"
+                          checked={field.value}
+                          onChange={field.onChange}
+                          ref={field.ref}
+                          name={field.name}
+                          onBlur={field.onBlur}
+                          className="size-4 accent-primary"
+                        />
+                      </FormControl>
+                      <FormLabel>Активная запись</FormLabel>
+                    </FormItem>
+                  )}
+                />
+              )}
             </fieldset>
             {error && <ErrorNotice message={error} />}
             <DialogFooter>

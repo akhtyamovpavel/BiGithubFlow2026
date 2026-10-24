@@ -1,12 +1,22 @@
 import type {
+  AvailableClassroomFilters,
+  Classroom,
+  ClassroomFilters,
+  ClassroomInput,
   Group,
   GroupFilters,
   GroupInput,
   Lesson,
+  LessonInput,
   Readiness,
+  Subject,
+  SubjectFilters,
+  SubjectInput,
   Teacher,
   TeacherFilters,
   TeacherInput,
+  TimeSlot,
+  TimeSlotFilters,
 } from "@/lib/models"
 
 export const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || "/api/v1").replace(/\/$/, "")
@@ -16,6 +26,13 @@ const HEALTH_URL = import.meta.env.VITE_HEALTH_URL || healthDefault
 interface ValidationIssue {
   loc: (string | number)[]
   msg: string
+}
+
+const conflictTypeLabels: Record<string, string> = {
+  TEACHER_BUSY: "Преподаватель уже занят в выбранный временной слот",
+  GROUP_BUSY: "Учебная группа уже занята в выбранный временной слот",
+  CLASSROOM_BUSY: "Аудитория уже занята в выбранный временной слот",
+  CAPACITY_EXCEEDED: "Вместимость аудитории недостаточна для выбранной группы",
 }
 
 export class ApiError extends Error {
@@ -40,10 +57,18 @@ function isValidationIssue(value: unknown): value is ValidationIssue {
 
 async function responseError(response: Response): Promise<ApiError> {
   let detail: unknown
+  let conflicts: unknown
   try {
     const body: unknown = await response.json()
-    if (body && typeof body === "object" && "detail" in body) {
-      detail = body.detail
+    if (body && typeof body === "object") {
+      if ("detail" in body) {
+        detail = body.detail
+      }
+      if ("conflicts" in body) {
+        conflicts = body.conflicts
+      } else if (detail && typeof detail === "object" && "conflicts" in detail) {
+        conflicts = detail.conflicts
+      }
     }
   } catch {
     // Proxies can return HTML instead of FastAPI's JSON error body.
@@ -53,6 +78,24 @@ async function responseError(response: Response): Promise<ApiError> {
     409: "Не удалось сохранить: запись с такими данными уже существует или связана с расписанием.",
     422: "Проверь значения полей формы.",
     503: "Сервис временно недоступен. Попробуй ещё раз позже.",
+  }
+  if (response.status === 409 && Array.isArray(conflicts) && conflicts.length > 0) {
+    const reasons = Array.from(
+      new Set(
+        conflicts.map((item) => {
+          if (
+            item &&
+            typeof item === "object" &&
+            "conflict_type" in item &&
+            typeof item.conflict_type === "string"
+          ) {
+            return conflictTypeLabels[item.conflict_type] || item.conflict_type
+          }
+          return "Накладка в расписании"
+        }),
+      ),
+    )
+    messages[409] = `Обнаружена коллизия расписания: ${reasons.join("; ")}.`
   }
   const fields: Record<string, string> = {}
   if (Array.isArray(detail)) {
@@ -140,6 +183,27 @@ function createResource<T, Input, Filters extends object>(resource: string) {
 
 export const groupsApi = createResource<Group, GroupInput, GroupFilters>("groups")
 export const teachersApi = createResource<Teacher, TeacherInput, TeacherFilters>("teachers")
+export const classroomsApi = createResource<Classroom, ClassroomInput, ClassroomFilters>(
+  "classrooms",
+)
+export const subjectsApi = createResource<Subject, SubjectInput, SubjectFilters>("subjects")
+export const timeSlotsApi = createResource<TimeSlot, never, TimeSlotFilters>("time-slots")
+export const lessonsApi = createResource<Lesson, LessonInput, Record<string, unknown>>("lessons")
+
+export const getAvailableClassrooms = async (
+  filters: AvailableClassroomFilters,
+  signal?: AbortSignal,
+) => {
+  const records = await request<Classroom[]>(
+    `${API_BASE_URL}/schedule/classrooms/available?${queryString(filters)}`,
+    { signal },
+  )
+  if (!Array.isArray(records)) {
+    throw new ApiError(0, "Сервис вернул список аудиторий в неизвестном формате.")
+  }
+  return records
+}
+
 export const getReadiness = (signal?: AbortSignal) => request<Readiness>(HEALTH_URL, { signal })
 export const getLessons = async (signal?: AbortSignal) => {
   const path = import.meta.env.VITE_SCHEDULE_PATH || "/lessons/"
