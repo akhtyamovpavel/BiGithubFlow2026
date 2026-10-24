@@ -3,6 +3,7 @@ dist/
 *.tsbuildinfo
 playwright-report/
 test-results/
+demo-videos/
 .env.local
 !src/lib/
 !src/lib/**
