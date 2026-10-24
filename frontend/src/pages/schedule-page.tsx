@@ -1,14 +1,46 @@
-import { Fragment, useEffect, useState } from "react"
-import { BookOpen, Info, MapPin, RefreshCw, UserRound } from "lucide-react"
-import { ApiError, errorMessage, getLessons } from "@/lib/api"
+import { Fragment, useEffect, useId, useState } from "react"
+import {
+  BookOpen,
+  Download,
+  Info,
+  MapPin,
+  Plus,
+  RefreshCw,
+  Search,
+  UserRound,
+} from "lucide-react"
+import {
+  API_BASE_URL,
+  ApiError,
+  classroomsApi,
+  errorMessage,
+  getAvailableClassrooms,
+  getLessons,
+  groupsApi,
+  subjectsApi,
+  teachersApi,
+  timeSlotsApi,
+} from "@/lib/api"
 import { DEMO_TIMES, demoLessons } from "@/lib/demo-schedule"
-import type { Lesson, LessonType, WeekParity } from "@/lib/models"
+import type {
+  Classroom,
+  Group,
+  Lesson,
+  LessonType,
+  Subject,
+  Teacher,
+  TimeSlot,
+  WeekParity,
+} from "@/lib/models"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
+import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { EmptyState, ErrorNotice, LoadingRows } from "@/components/feedback"
 import { FilterSelect, type Option } from "@/components/filter-select"
+import { formatTimeSlot, LessonDialog } from "@/components/lesson-dialog"
 
 const days = ["Понедельник", "Вторник", "Среда", "Четверг", "Пятница", "Суббота"]
 const typeLabels: Record<LessonType, string> = {
@@ -49,7 +81,13 @@ function optionsFor(lessons: Lesson[], resource: "group" | "teacher" | "classroo
 }
 
 export function SchedulePage() {
+  const searchFormId = useId()
   const [lessons, setLessons] = useState<Lesson[]>([])
+  const [groups, setGroups] = useState<Group[]>([])
+  const [teachers, setTeachers] = useState<Teacher[]>([])
+  const [classrooms, setClassrooms] = useState<Classroom[]>([])
+  const [subjects, setSubjects] = useState<Subject[]>([])
+  const [timeSlots, setTimeSlots] = useState<TimeSlot[]>([])
   const [loading, setLoading] = useState(true)
   const [demo, setDemo] = useState(false)
   const [error, setError] = useState("")
@@ -58,6 +96,13 @@ export function SchedulePage() {
   const [group, setGroup] = useState("all")
   const [teacher, setTeacher] = useState("all")
   const [classroom, setClassroom] = useState("all")
+  const [addingLesson, setAddingLesson] = useState(false)
+
+  const [searchSlotId, setSearchSlotId] = useState("")
+  const [minCapacity, setMinCapacity] = useState("")
+  const [availableRooms, setAvailableRooms] = useState<Classroom[] | null>(null)
+  const [searchingRooms, setSearchingRooms] = useState(false)
+  const [searchError, setSearchError] = useState("")
 
   useEffect(() => {
     const controller = new AbortController()
@@ -67,6 +112,26 @@ export function SchedulePage() {
     setGroup("all")
     setTeacher("all")
     setClassroom("all")
+
+    void Promise.all([
+      groupsApi.list({ limit: 100 }, controller.signal).catch(() => [] as Group[]),
+      teachersApi.list({ limit: 100 }, controller.signal).catch(() => [] as Teacher[]),
+      classroomsApi.list({ limit: 100 }, controller.signal).catch(() => [] as Classroom[]),
+      subjectsApi.list({ limit: 100 }, controller.signal).catch(() => [] as Subject[]),
+      timeSlotsApi.list({ limit: 100 }, controller.signal).catch(() => [] as TimeSlot[]),
+    ]).then(([loadedGroups, loadedTeachers, loadedClassrooms, loadedSubjects, loadedSlots]) => {
+      if (!controller.signal.aborted) {
+        setGroups(loadedGroups)
+        setTeachers(loadedTeachers)
+        setClassrooms(loadedClassrooms)
+        setSubjects(loadedSubjects)
+        setTimeSlots(loadedSlots)
+        if (loadedSlots.length > 0) {
+          setSearchSlotId((prev) => prev || String(loadedSlots[0].id))
+        }
+      }
+    })
+
     getLessons(controller.signal)
       .then((records) => {
         if (!controller.signal.aborted) {
@@ -93,6 +158,31 @@ export function SchedulePage() {
     return () => controller.abort()
   }, [revision])
 
+  async function handleSearchAvailable(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    if (!searchSlotId) {
+      return
+    }
+    setSearchingRooms(true)
+    setSearchError("")
+    try {
+      const cap = minCapacity.trim() ? Number(minCapacity.trim()) : undefined
+      const selectedParity: WeekParity =
+        parity === "ODD_WEEK" || parity === "EVEN_WEEK" ? parity : "ALWAYS"
+      const rooms = await getAvailableClassrooms({
+        time_slot_id: Number(searchSlotId),
+        parity: selectedParity,
+        min_capacity: cap && cap > 0 ? cap : undefined,
+      })
+      setAvailableRooms(rooms)
+    } catch (failure) {
+      setSearchError(errorMessage(failure))
+      setAvailableRooms([])
+    } finally {
+      setSearchingRooms(false)
+    }
+  }
+
   const filtered = lessons.filter((lesson) => {
     const weekMatches =
       parity === "ALL" ||
@@ -116,6 +206,16 @@ export function SchedulePage() {
   )
   const unplaced = filtered.length - visible.length
 
+  const defaultGroupId = groups[0]?.id ?? lessons[0]?.group_id ?? 1
+  const exportScope =
+    group !== "all"
+      ? `group/${group}`
+      : teacher !== "all"
+        ? `teacher/${teacher}`
+        : `group/${defaultGroupId}`
+  const icsExportUrl = `${API_BASE_URL}/schedule/${exportScope}/export/ics`
+  const csvExportUrl = `${API_BASE_URL}/schedule/${exportScope}/export/csv`
+
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap items-start justify-between gap-4">
@@ -126,14 +226,32 @@ export function SchedulePage() {
             Учебная неделя, с понедельника по субботу.
           </p>
         </div>
-        <Button
-          variant="outline"
-          disabled={loading}
-          onClick={() => setRevision((value) => value + 1)}
-        >
-          <RefreshCw aria-hidden="true" />
-          Обновить
-        </Button>
+        <div className="flex flex-wrap items-center gap-2">
+          <Button variant="outline" asChild>
+            <a href={icsExportUrl} download>
+              <Download aria-hidden="true" />
+              Скачать .ics
+            </a>
+          </Button>
+          <Button variant="outline" asChild>
+            <a href={csvExportUrl} download>
+              <Download aria-hidden="true" />
+              Скачать .csv
+            </a>
+          </Button>
+          <Button
+            variant="outline"
+            disabled={loading}
+            onClick={() => setRevision((value) => value + 1)}
+          >
+            <RefreshCw aria-hidden="true" />
+            Обновить
+          </Button>
+          <Button onClick={() => setAddingLesson(true)}>
+            <Plus aria-hidden="true" />
+            Добавить занятие
+          </Button>
+        </div>
       </div>
 
       {demo && (
@@ -305,9 +423,94 @@ export function SchedulePage() {
           </div>
         </div>
       )}
-      <p className="text-xs leading-relaxed text-muted-foreground">
-        Сетка доступна для просмотра. Создание занятий пока недоступно.
-      </p>
+
+      <section
+        aria-label="Поиск свободных аудиторий"
+        className="space-y-4 rounded-xl border bg-card p-5"
+      >
+        <div className="space-y-1">
+          <h2 className="text-lg font-semibold">Поиск свободных аудиторий</h2>
+          <p className="text-sm text-muted-foreground">
+            Подбор незанятых аудиторий на выбранный временной слот с учётом минимальной вместимости.
+          </p>
+        </div>
+        <form onSubmit={handleSearchAvailable} className="flex flex-wrap items-end gap-4">
+          <div className="min-w-64 flex-1 space-y-2">
+            <Label htmlFor={`${searchFormId}-slot`}>Слот для поиска аудитории</Label>
+            <select
+              id={`${searchFormId}-slot`}
+              value={searchSlotId}
+              onChange={(event) => setSearchSlotId(event.target.value)}
+              className="flex h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm shadow-xs"
+            >
+              {timeSlots.map((slot) => (
+                <option key={slot.id} value={String(slot.id)}>
+                  {formatTimeSlot(slot)}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div className="w-56 space-y-2">
+            <Label htmlFor={`${searchFormId}-cap`}>Минимальная вместимость</Label>
+            <Input
+              id={`${searchFormId}-cap`}
+              type="number"
+              min={1}
+              step={1}
+              value={minCapacity}
+              onChange={(event) => setMinCapacity(event.target.value)}
+              placeholder="Например, 50"
+            />
+          </div>
+          <Button type="submit" variant="secondary" disabled={searchingRooms || !searchSlotId}>
+            <Search aria-hidden="true" />
+            Найти свободные аудитории
+          </Button>
+        </form>
+
+        {searchError && <ErrorNotice message={searchError} />}
+        {availableRooms !== null && !searchError && (
+          <div className="space-y-2 pt-2">
+            {availableRooms.length === 0 ? (
+              <p className="text-sm text-muted-foreground">
+                Свободных аудиторий по заданным критериям не найдено.
+              </p>
+            ) : (
+              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                {availableRooms.map((room) => (
+                  <div
+                    key={room.id}
+                    className="flex items-center justify-between rounded-lg border bg-background p-3 text-sm"
+                  >
+                    <div>
+                      <p className="font-medium">
+                        {room.building} · {room.room_number}
+                      </p>
+                      <p className="text-xs text-muted-foreground">
+                        {room.has_projector ? "Проектор" : "Без проектора"}
+                        {room.has_computers ? " · Компьютеры" : ""}
+                      </p>
+                    </div>
+                    <Badge variant="secondary">{room.capacity} мест</Badge>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+      </section>
+
+      {addingLesson && (
+        <LessonDialog
+          groups={groups}
+          teachers={teachers}
+          classrooms={classrooms}
+          subjects={subjects}
+          timeSlots={timeSlots}
+          onClose={() => setAddingLesson(false)}
+          onSaved={() => setRevision((value) => value + 1)}
+        />
+      )}
     </div>
   )
 }

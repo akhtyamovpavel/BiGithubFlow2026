@@ -1,8 +1,25 @@
 import { useEffect, useId, useState } from "react"
-import { ChevronLeft, ChevronRight, Pencil, Plus, Trash2, Users, GraduationCap } from "lucide-react"
+import {
+  BookOpen,
+  Building2,
+  ChevronLeft,
+  ChevronRight,
+  GraduationCap,
+  Pencil,
+  Plus,
+  Trash2,
+  Users,
+} from "lucide-react"
 import { toast } from "sonner"
-import { errorMessage, groupsApi, teachersApi } from "@/lib/api"
-import type { DirectoryRecord, GroupFilters, TeacherFilters, Resource } from "@/lib/models"
+import { classroomsApi, errorMessage, groupsApi, subjectsApi, teachersApi } from "@/lib/api"
+import type {
+  ClassroomFilters,
+  DirectoryRecord,
+  GroupFilters,
+  Resource,
+  SubjectFilters,
+  TeacherFilters,
+} from "@/lib/models"
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
@@ -30,7 +47,6 @@ import { EmptyState, ErrorNotice, LoadingRows } from "@/components/feedback"
 import { FilterSelect } from "@/components/filter-select"
 import { RecordDialog } from "@/components/record-dialog"
 
-const PAGE_SIZE = 10
 const activeOptions = [
   { value: "all", label: "Все записи" },
   { value: "true", label: "Активные" },
@@ -45,6 +61,9 @@ const courseOptions = [
 ]
 
 function recordName(record: DirectoryRecord): string {
+  if ("building" in record) {
+    return `${record.building} · ${record.room_number}`
+  }
   if ("name" in record) {
     return record.name
   }
@@ -53,6 +72,11 @@ function recordName(record: DirectoryRecord): string {
 
 export function DirectoryPage({ resource }: { resource: Resource }) {
   const isGroup = resource === "groups"
+  const isTeacher = resource === "teachers"
+  const isClassroom = resource === "classrooms"
+  const isSubject = resource === "subjects"
+  const pageSize = isGroup || isTeacher ? 10 : 25
+
   const fieldId = useId()
   const [rows, setRows] = useState<DirectoryRecord[]>([])
   const [loading, setLoading] = useState(true)
@@ -73,17 +97,41 @@ export function DirectoryPage({ resource }: { resource: Resource }) {
   let description = "Контакты, кафедры и участие в учебном процессе."
   let addLabel = "Добавить преподавателя"
   let filterLabel = "Кафедра"
+  let firstColLabel = "Преподаватель"
+  let thirdColLabel = "Должность"
   let Icon = GraduationCap
+
   if (isGroup) {
     title = "Академические группы"
     description = "Состав групп и направления подготовки для планирования занятий."
     addLabel = "Добавить группу"
     filterLabel = "Факультет"
+    firstColLabel = "Группа"
+    thirdColLabel = "Курс / студенты"
     Icon = Users
+  } else if (isClassroom) {
+    title = "Аудитории"
+    description = "Учебные корпуса, номерной фонд, вместимость и техническое оснащение."
+    addLabel = "Добавить аудиторию"
+    filterLabel = "Корпус"
+    firstColLabel = "Аудитория"
+    thirdColLabel = "Вместимость / оснащение"
+    Icon = Building2
+  } else if (isSubject) {
+    title = "Предметы"
+    description = "Учебные дисциплины, коды курсов и краткие аннотации."
+    addLabel = "Добавить предмет"
+    filterLabel = "Поиск по названию или коду"
+    firstColLabel = "Предмет"
+    thirdColLabel = "Описание"
+    Icon = BookOpen
   }
 
-  const params: GroupFilters & TeacherFilters = { skip: page * PAGE_SIZE, limit: PAGE_SIZE + 1 }
-  if (filters.active !== "all") {
+  const params: GroupFilters & TeacherFilters & ClassroomFilters & SubjectFilters = {
+    skip: page * pageSize,
+    limit: pageSize + 1,
+  }
+  if (!isSubject && filters.active !== "all") {
     params.is_active = filters.active === "true"
   }
   if (isGroup && filters.course !== "all") {
@@ -92,8 +140,12 @@ export function DirectoryPage({ resource }: { resource: Resource }) {
   if (filters.term) {
     if (isGroup) {
       params.faculty = filters.term
-    } else {
+    } else if (isTeacher) {
       params.department = filters.term
+    } else if (isClassroom) {
+      params.building = filters.term
+    } else if (isSubject) {
+      params.search = filters.term
     }
   }
   const query = JSON.stringify(params)
@@ -102,18 +154,22 @@ export function DirectoryPage({ resource }: { resource: Resource }) {
     const controller = new AbortController()
     setLoading(true)
     setError("")
-    const params = JSON.parse(query) as GroupFilters & TeacherFilters
+    const parsedParams = JSON.parse(query)
     let promise: Promise<DirectoryRecord[]>
     if (resource === "groups") {
-      promise = groupsApi.list(params, controller.signal)
+      promise = groupsApi.list(parsedParams, controller.signal)
+    } else if (resource === "teachers") {
+      promise = teachersApi.list(parsedParams, controller.signal)
+    } else if (resource === "classrooms") {
+      promise = classroomsApi.list(parsedParams, controller.signal)
     } else {
-      promise = teachersApi.list(params, controller.signal)
+      promise = subjectsApi.list(parsedParams, controller.signal)
     }
     promise
       .then((records) => {
         if (!controller.signal.aborted) {
-          setRows(records.slice(0, PAGE_SIZE))
-          setHasNext(records.length > PAGE_SIZE)
+          setRows(records.slice(0, pageSize))
+          setHasNext(records.length > pageSize)
         }
       })
       .catch((failure) => {
@@ -128,7 +184,7 @@ export function DirectoryPage({ resource }: { resource: Resource }) {
         }
       })
     return () => controller.abort()
-  }, [query, resource, revision])
+  }, [pageSize, query, resource, revision])
 
   function refresh() {
     setRevision((value) => value + 1)
@@ -143,8 +199,12 @@ export function DirectoryPage({ resource }: { resource: Resource }) {
     try {
       if (isGroup) {
         await groupsApi.remove(deleting.id)
-      } else {
+      } else if (isTeacher) {
         await teachersApi.remove(deleting.id)
+      } else if (isClassroom) {
+        await classroomsApi.remove(deleting.id)
+      } else {
+        await subjectsApi.remove(deleting.id)
       }
       setDeleting(null)
       toast.success("Запись удалена")
@@ -200,12 +260,14 @@ export function DirectoryPage({ resource }: { resource: Resource }) {
               options={courseOptions}
             />
           )}
-          <FilterSelect
-            label="Статус"
-            value={active}
-            onChange={setActive}
-            options={activeOptions}
-          />
+          {!isSubject && (
+            <FilterSelect
+              label="Статус"
+              value={active}
+              onChange={setActive}
+              options={activeOptions}
+            />
+          )}
           <Button type="submit" variant="secondary">
             Применить
           </Button>
@@ -244,77 +306,91 @@ export function DirectoryPage({ resource }: { resource: Resource }) {
             <Table className="min-w-[720px]">
               <TableHeader>
                 <TableRow>
-                  <TableHead className="pl-5">
-                    {isGroup && "Группа"}
-                    {!isGroup && "Преподаватель"}
-                  </TableHead>
-                  <TableHead>{filterLabel}</TableHead>
-                  <TableHead>
-                    {isGroup && "Курс / студенты"}
-                    {!isGroup && "Должность"}
-                  </TableHead>
+                  <TableHead className="pl-5">{firstColLabel}</TableHead>
+                  <TableHead>{isSubject ? "Код дисциплины" : filterLabel}</TableHead>
+                  <TableHead>{thirdColLabel}</TableHead>
                   <TableHead>Статус</TableHead>
                   <TableHead className="pr-5 text-right">Действия</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {rows.map((record) => (
-                  <TableRow key={record.id}>
-                    <TableCell className="py-4 pl-5">
-                      <div className="flex items-center gap-3">
-                        <span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-primary/7 text-primary">
-                          <Icon className="size-4" aria-hidden="true" />
-                        </span>
-                        <div className="whitespace-normal">
-                          <p className="font-medium">{recordName(record)}</p>
-                          {"email" in record && (
-                            <p className="mt-1 text-xs text-muted-foreground">{record.email}</p>
-                          )}
+                {rows.map((record) => {
+                  const isActiveRecord = "is_active" in record ? record.is_active : true
+                  return (
+                    <TableRow key={record.id}>
+                      <TableCell className="py-4 pl-5">
+                        <div className="flex items-center gap-3">
+                          <span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-primary/7 text-primary">
+                            <Icon className="size-4" aria-hidden="true" />
+                          </span>
+                          <div className="whitespace-normal">
+                            <p className="font-medium">
+                              {"room_number" in record ? record.room_number : recordName(record)}
+                            </p>
+                            {"email" in record && (
+                              <p className="mt-1 text-xs text-muted-foreground">{record.email}</p>
+                            )}
+                            {"room_number" in record && (
+                              <p className="mt-1 text-xs text-muted-foreground">
+                                {record.building} · {record.room_number}
+                              </p>
+                            )}
+                          </div>
                         </div>
-                      </div>
-                    </TableCell>
-                    <TableCell className="max-w-56 whitespace-normal text-muted-foreground">
-                      {"faculty" in record && record.faculty}
-                      {"department" in record && record.department}
-                    </TableCell>
-                    <TableCell className="whitespace-normal text-muted-foreground">
-                      {"course_number" in record &&
-                        `${record.course_number} курс · ${record.student_count} чел.`}
-                      {"position" in record && (record.position || "Не указана")}
-                    </TableCell>
-                    <TableCell>
-                      <Badge
-                        variant="secondary"
-                        className={cn(record.is_active && "bg-primary/10 text-primary")}
-                      >
-                        {record.is_active && "Активна"}
-                        {!record.is_active && "Неактивна"}
-                      </Badge>
-                    </TableCell>
-                    <TableCell className="pr-5 text-right">
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        aria-label={`Редактировать ${recordName(record)}`}
-                        onClick={() => setEditing(record)}
-                      >
-                        <Pencil aria-hidden="true" />
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="text-destructive hover:text-destructive"
-                        aria-label={`Удалить ${recordName(record)}`}
-                        onClick={() => {
-                          setDeleting(record)
-                          setDeleteError("")
-                        }}
-                      >
-                        <Trash2 aria-hidden="true" />
-                      </Button>
-                    </TableCell>
-                  </TableRow>
-                ))}
+                      </TableCell>
+                      <TableCell className="max-w-56 whitespace-normal text-muted-foreground">
+                        {"faculty" in record && record.faculty}
+                        {"department" in record && record.department}
+                        {"building" in record && record.building}
+                        {"description" in record && (record.code || "—")}
+                      </TableCell>
+                      <TableCell className="whitespace-normal text-muted-foreground">
+                        {"course_number" in record &&
+                          `${record.course_number} курс · ${record.student_count} чел.`}
+                        {"position" in record && (record.position || "Не указана")}
+                        {"capacity" in record && (
+                          <span>
+                            {record.capacity} мест
+                            {record.has_projector && " · Проектор"}
+                            {record.has_computers && " · Компьютеры"}
+                          </span>
+                        )}
+                        {"description" in record && (record.description || "Не указано")}
+                      </TableCell>
+                      <TableCell>
+                        <Badge
+                          variant="secondary"
+                          className={cn(isActiveRecord && "bg-primary/10 text-primary")}
+                        >
+                          {isActiveRecord && "Активна"}
+                          {!isActiveRecord && "Неактивна"}
+                        </Badge>
+                      </TableCell>
+                      <TableCell className="pr-5 text-right">
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          aria-label={`Редактировать ${recordName(record)}`}
+                          onClick={() => setEditing(record)}
+                        >
+                          <Pencil aria-hidden="true" />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="text-destructive hover:text-destructive"
+                          aria-label={`Удалить ${recordName(record)}`}
+                          onClick={() => {
+                            setDeleting(record)
+                            setDeleteError("")
+                          }}
+                        >
+                          <Trash2 aria-hidden="true" />
+                        </Button>
+                      </TableCell>
+                    </TableRow>
+                  )
+                })}
               </TableBody>
             </Table>
           </div>

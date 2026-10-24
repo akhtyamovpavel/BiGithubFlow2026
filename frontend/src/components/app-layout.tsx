@@ -1,5 +1,14 @@
 import { useEffect, useState } from "react"
-import { CalendarDays, Check, GraduationCap, Menu, Unplug, Users } from "lucide-react"
+import {
+  BookOpen,
+  Building2,
+  CalendarDays,
+  Check,
+  GraduationCap,
+  Menu,
+  Unplug,
+  Users,
+} from "lucide-react"
 import { NavLink, Outlet, useLocation } from "react-router-dom"
 import { getReadiness } from "@/lib/api"
 import { cn } from "@/lib/utils"
@@ -18,6 +27,8 @@ const navigation = [
   { to: "/schedule", label: "Сетка расписания", icon: CalendarDays },
   { to: "/groups", label: "Академические группы", icon: Users },
   { to: "/teachers", label: "Преподаватели", icon: GraduationCap },
+  { to: "/classrooms", label: "Аудитории", icon: Building2 },
+  { to: "/subjects", label: "Предметы", icon: BookOpen },
 ]
 
 function Brand() {

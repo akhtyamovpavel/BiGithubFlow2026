@@ -1,31 +1,47 @@
-import { defineConfig, devices } from "@playwright/test"
+import fs from "node:fs"
+import { chromium, defineConfig, devices } from "@playwright/test"
 
-const port = process.env.PLAYWRIGHT_PORT || "14373"
-const baseURL = `http://127.0.0.1:${port}`
+const baseURL = process.env.PLAYWRIGHT_BASE_URL || "http://localhost:8080"
+
+function resolveExecutablePath(): string | undefined {
+  if (process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH) {
+    return process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH
+  }
+  try {
+    const defaultPath = chromium.executablePath()
+    if (defaultPath && fs.existsSync(defaultPath)) {
+      return undefined
+    }
+  } catch {
+    // Fallback to system Chrome below
+  }
+  if (fs.existsSync("/usr/bin/google-chrome")) {
+    return "/usr/bin/google-chrome"
+  }
+  return undefined
+}
 
 export default defineConfig({
-  testDir: "./tests",
-  fullyParallel: true,
+  testDir: "./e2e",
+  fullyParallel: false,
+  workers: 1,
   forbidOnly: !!process.env.CI,
-  retries: 0,
-  reporter: "list",
+  retries: process.env.CI ? 1 : 0,
+  reporter: [["list"], ["html", { open: "never" }]],
   use: {
     baseURL,
-    trace: "retain-on-failure",
+    headless: false,
+    screenshot: "only-on-failure",
+    trace: "on-first-retry",
   },
   projects: [
     {
       name: "chromium",
       use: {
         ...devices["Desktop Chrome"],
-        launchOptions: { executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH },
+        headless: false,
+        launchOptions: { executablePath: resolveExecutablePath() },
       },
     },
   ],
-  webServer: {
-    command: `npm run build && npm run preview -- --host 127.0.0.1 --port ${port} --strictPort`,
-    url: baseURL,
-    reuseExistingServer: false,
-    stdout: "pipe",
-  },
 })

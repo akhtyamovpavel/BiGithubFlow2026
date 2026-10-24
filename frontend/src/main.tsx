@@ -25,6 +25,11 @@ createRoot(document.getElementById("root")!).render(
             <Route path="groups" element={<DirectoryPage key="groups" resource="groups" />} />
             <Route path="teachers" element={<DirectoryPage key="teachers" resource="teachers" />} />
             <Route
+              path="classrooms"
+              element={<DirectoryPage key="classrooms" resource="classrooms" />}
+            />
+            <Route path="subjects" element={<DirectoryPage key="subjects" resource="subjects" />} />
+            <Route
               path="*"
               element={
                 <div className="space-y-4">

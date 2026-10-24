@@ -12,7 +12,7 @@ on:
       - "alembic/**"
       - "alembic.ini"
       - "src/**"
-      - "scripts/entrypoint.sh"
+      - "scripts/**"
       - "pyproject.toml"
       - "poetry.lock"
       - ".github/workflows/frontend.yml"
@@ -27,7 +27,7 @@ on:
       - "alembic/**"
       - "alembic.ini"
       - "src/**"
-      - "scripts/entrypoint.sh"
+      - "scripts/**"
       - "pyproject.toml"
       - "poetry.lock"
       - ".github/workflows/frontend.yml"
@@ -52,16 +52,28 @@ jobs:
           cache-dependency-path: frontend/package-lock.json
       - run: npm ci
       - run: npm run lint
-      - run: npx playwright install --with-deps chromium
-      - run: npm test
+      - run: npm run typecheck
+      - run: npm run build
 
   compose:
-    name: Compose integration
+    name: Compose integration & E2E
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Install frontend dependencies and Playwright Chromium
+        working-directory: frontend
+        run: |
+          npm ci
+          npx playwright install --with-deps chromium
       - name: Start stack with a fresh PostgreSQL database
         run: docker compose up --build -d --wait --wait-timeout 120
+      - name: Seed demonstration data
+        run: docker compose exec -T app python -m scripts.seed_demo_data
       - name: Check SPA routes and API through Nginx
         run: |
           curl --fail --silent --show-error http://localhost:8080/groups
@@ -69,6 +81,9 @@ jobs:
           curl --fail --silent --show-error http://localhost:8080/health/ready
           curl --fail --silent --show-error http://localhost:8080/api/v1/groups/
           curl --fail --silent --show-error http://localhost:8080/api/v1/teachers/
+      - name: Run Playwright E2E tests
+        working-directory: frontend
+        run: xvfb-run --auto-servernum npx playwright test
       - name: Show container logs on failure
         if: failure()
         run: docker compose logs --no-color
