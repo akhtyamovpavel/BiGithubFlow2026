@@ -25,6 +25,7 @@ class Settings(BaseSettings):
         default=False,
         description="Debug mode enabled flag",
     )
+    session_lifetime_seconds: int = Field(default=28800, gt=0)
     host: str = Field(
         default="0.0.0.0",
         description="Server host bind address",

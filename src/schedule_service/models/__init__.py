@@ -7,6 +7,7 @@ from schedule_service.models.lesson import Lesson, LessonParity, LessonType, Wee
 from schedule_service.models.subject import Subject
 from schedule_service.models.teacher import Teacher
 from schedule_service.models.time_slot import TimeSlot
+from schedule_service.models.user import LoginSession, User, UserRole
 
 __all__ = [
     "Base",
@@ -15,8 +16,11 @@ __all__ = [
     "Lesson",
     "LessonParity",
     "LessonType",
+    "LoginSession",
     "Subject",
     "Teacher",
     "TimeSlot",
+    "User",
+    "UserRole",
     "WeekParity",
 ]

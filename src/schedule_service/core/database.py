@@ -43,6 +43,7 @@ def create_engine_and_sessionmaker(
     engine = create_async_engine(
         url,
         echo=get_settings().debug,
+        hide_parameters=True,
         future=True,
         **engine_kwargs,
     )
