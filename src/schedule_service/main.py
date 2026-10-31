@@ -3,7 +3,10 @@
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 
-from fastapi import Depends, FastAPI, Response, status
+from fastapi import Depends, FastAPI, Request, Response, status
+from fastapi.encoders import jsonable_encoder
+from fastapi.exceptions import RequestValidationError
+from fastapi.responses import JSONResponse
 
 from schedule_service.api.v1.router import api_v1_router
 from schedule_service.core.config import Settings, get_settings
@@ -31,6 +34,15 @@ def create_app() -> FastAPI:
     )
 
     app.include_router(api_v1_router)
+
+    @app.exception_handler(RequestValidationError)
+    async def validation_error_handler(
+        _request: Request, exc: RequestValidationError
+    ) -> JSONResponse:
+        errors = exc.errors()
+        for error in errors:
+            error.pop("input", None)
+        return JSONResponse(status_code=422, content={"detail": jsonable_encoder(errors)})
 
     @app.get(
         "/health",
