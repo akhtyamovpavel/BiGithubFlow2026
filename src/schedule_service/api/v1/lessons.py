@@ -13,6 +13,7 @@ from schedule_service.core.database import get_async_session
 from schedule_service.models.classroom import Classroom
 from schedule_service.models.group import Group
 from schedule_service.models.lesson import Lesson, LessonType, WeekParity
+from schedule_service.models.lesson_exception import LessonException
 from schedule_service.models.subject import Subject
 from schedule_service.models.teacher import Teacher
 from schedule_service.models.time_slot import TimeSlot
@@ -30,6 +31,7 @@ from schedule_service.services.conflict_service import (
     ScheduleConflictException,
     ScheduleValidationService,
 )
+from schedule_service.services.occurrences import lock_schedule
 
 router = APIRouter()
 SessionDep = Annotated[AsyncSession, Depends(get_async_session)]
@@ -184,6 +186,7 @@ async def create_lesson(
     session: SessionDep = None,  # type: ignore[assignment]
 ) -> LessonRead | JSONResponse:
     """Create a new scheduled lesson with conflict detection."""
+    await lock_schedule(session)
     try:
         await ScheduleValidationService.validate_lesson(session, lesson_in)
     except ScheduleConflictException as exc:
@@ -225,6 +228,8 @@ async def update_lesson(
     session: SessionDep = None,  # type: ignore[assignment]
 ) -> LessonRead | JSONResponse:
     """Update an existing scheduled lesson with conflict detection."""
+    await lock_schedule(session)
+    await _reject_exception_lesson(session, lesson_id)
     result = await session.execute(select(Lesson).where(Lesson.id == lesson_id))
     lesson = result.scalar_one_or_none()
     if lesson is None:
@@ -285,6 +290,8 @@ async def delete_lesson(
     session: SessionDep = None,  # type: ignore[assignment]
 ) -> None:
     """Delete a scheduled lesson by ID."""
+    await lock_schedule(session)
+    await _reject_exception_lesson(session, lesson_id)
     result = await session.execute(select(Lesson).where(Lesson.id == lesson_id))
     lesson = result.scalar_one_or_none()
     if lesson is None:
@@ -295,3 +302,13 @@ async def delete_lesson(
 
     await session.delete(lesson)
     await session.flush()
+
+
+async def _reject_exception_lesson(session: AsyncSession, lesson_id: int) -> None:
+    """Avoid silently changing or deleting recorded exceptions."""
+    query = select(LessonException.id).where(
+        (LessonException.lesson_id == lesson_id)
+        | (LessonException.replacement_lesson_id == lesson_id)
+    )
+    if (await session.execute(query)).first() is not None:
+        raise HTTPException(status_code=409, detail="Lesson has an occurrence exception")

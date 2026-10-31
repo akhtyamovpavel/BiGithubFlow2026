@@ -72,3 +72,6 @@ init_typed = true
 [build-system]
 requires = ["poetry-core"]
 build-backend = "poetry.core.masonry.api"
+
+[tool.pytest.ini_options]
+markers = ["auth_integration: exercise real authentication and authorization"]

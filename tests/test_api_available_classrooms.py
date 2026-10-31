@@ -36,6 +36,7 @@ async def client_with_db() -> AsyncGenerator[AsyncClient, None]:
                     Subject.__table__,  # type: ignore[list-item]
                     TimeSlot.__table__,  # type: ignore[list-item]
                     Lesson.__table__,  # type: ignore[list-item]
+                    Base.metadata.tables["lesson_exceptions"],
                 ],
             )
         )
@@ -296,7 +297,7 @@ async def test_available_classrooms_parity_and_date_filtering(
     )
     assert res1.status_code == 201
 
-    # Occupy c_large on a specific date 2026-10-19 (EVEN_WEEK)
+    # Occupy c_large on a specific date 2026-10-26 (ISO week 44)
     res2 = await client_with_db.post(
         "/api/v1/lessons/",
         json={
@@ -307,7 +308,7 @@ async def test_available_classrooms_parity_and_date_filtering(
             "time_slot_id": ids["slot1_id"],
             "lesson_type": "LECTURE",
             "parity": "EVEN_WEEK",
-            "specific_date": "2026-10-19",
+            "specific_date": "2026-10-26",
         },
     )
     assert res2.status_code == 201
@@ -319,18 +320,18 @@ async def test_available_classrooms_parity_and_date_filtering(
     assert res_odd.status_code == 200
     assert [c["id"] for c in res_odd.json()] == [ids["c_small"], ids["c_large"]]
 
-    # On EVEN_WEEK with date=2026-10-19: c_large is busy, c_small and c_medium are free
+    # On EVEN_WEEK with date=2026-10-26: c_large is busy, c_small and c_medium are free
     res_date_busy = await client_with_db.get(
         f"/api/v1/schedule/classrooms/available?time_slot_id={ids['slot1_id']}"
-        "&parity=EVEN_WEEK&date=2026-10-19"
+        "&parity=EVEN_WEEK&date=2026-10-26"
     )
     assert res_date_busy.status_code == 200
     assert [c["id"] for c in res_date_busy.json()] == [ids["c_small"], ids["c_medium"]]
 
-    # On EVEN_WEEK with another date=2026-10-26: all 3 active classrooms are free
+    # On EVEN_WEEK with another date=2026-11-09: all 3 active classrooms are free
     res_date_free = await client_with_db.get(
         f"/api/v1/schedule/classrooms/available?time_slot_id={ids['slot1_id']}"
-        "&parity=EVEN_WEEK&date=2026-10-26"
+        "&parity=EVEN_WEEK&date=2026-11-09"
     )
     assert res_date_free.status_code == 200
     assert [c["id"] for c in res_date_free.json()] == [

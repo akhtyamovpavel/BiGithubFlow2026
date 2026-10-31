@@ -42,6 +42,7 @@ async def db_context() -> (
                     Subject.__table__,  # type: ignore[list-item]
                     TimeSlot.__table__,  # type: ignore[list-item]
                     Lesson.__table__,  # type: ignore[list-item]
+                    Base.metadata.tables["lesson_exceptions"],
                 ],
             )
         )
@@ -433,6 +434,26 @@ async def test_get_group_schedule_filter_by_date(
     mon_lessons = res_mon_odd.json()["days"][0]["lessons"]
     assert len(mon_lessons) == 2
     assert [item["time_slot"]["slot_number"] for item in mon_lessons] == [1, 3]
+
+
+@pytest.mark.asyncio
+async def test_date_filter_uses_iso_week_parity(
+    db_context: tuple[AsyncClient, async_sessionmaker[AsyncSession]],
+) -> None:
+    """A date selects the recurring lessons for its ISO week in both schedules."""
+    client, session_maker = db_context
+    ids = await _seed_schedule_data(session_maker)
+
+    for day, expected in [("2026-10-19", "ODD_WEEK"), ("2026-10-26", "EVEN_WEEK")]:
+        response = await client.get(f"/api/v1/schedule/group/{ids['g1_id']}?date={day}")
+        assert response.status_code == 200
+        lessons = response.json()["days"][0]["lessons"]
+        assert [lesson["parity"] for lesson in lessons] == ["ALWAYS", expected]
+
+    odd = await client.get(f"/api/v1/schedule/teacher/{ids['t1_id']}?date=2026-10-19")
+    even = await client.get(f"/api/v1/schedule/teacher/{ids['t1_id']}?date=2026-10-26")
+    assert len(odd.json()["days"][0]["lessons"]) == 1
+    assert len(even.json()["days"][0]["lessons"]) == 2
 
 
 @pytest.mark.asyncio

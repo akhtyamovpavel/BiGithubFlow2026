@@ -17,6 +17,7 @@ from schedule_service.schemas.classroom import (
     ClassroomUpdate,
 )
 from schedule_service.services.conflict_service import overlapping_parities
+from schedule_service.services.occurrences import active_on, week_parity
 
 router = APIRouter()
 SessionDep = Annotated[AsyncSession, Depends(get_async_session)]
@@ -36,15 +37,21 @@ async def query_available_classrooms(
     """Return active classrooms that have no conflicting lessons in the given time slot."""
     occupied_subquery = select(Lesson.classroom_id).where(
         Lesson.time_slot_id == time_slot_id,
-        Lesson.parity.in_(overlapping_parities(parity)),
     )
     if target_date is not None:
+        if parity not in (WeekParity.ALWAYS, week_parity(target_date)):
+            raise HTTPException(status_code=422, detail="Parity does not match the date")
         occupied_subquery = occupied_subquery.where(
             or_(
                 Lesson.specific_date.is_(None),
                 Lesson.specific_date == target_date,
-            )
+            ),
+            active_on(target_date),
+            (Lesson.specific_date.is_not(None))
+            | Lesson.parity.in_([WeekParity.ALWAYS, week_parity(target_date)]),
         )
+    else:
+        occupied_subquery = occupied_subquery.where(Lesson.parity.in_(overlapping_parities(parity)))
 
     query = select(Classroom).where(
         Classroom.is_active.is_(True),

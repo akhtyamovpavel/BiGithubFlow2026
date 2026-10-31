@@ -12,6 +12,7 @@ from schedule_service.core.database import get_async_session
 from schedule_service.models.classroom import Classroom
 from schedule_service.models.group import Group
 from schedule_service.models.lesson import Lesson, WeekParity
+from schedule_service.models.lesson_exception import LessonException
 from schedule_service.models.subject import Subject
 from schedule_service.models.teacher import Teacher
 from schedule_service.models.time_slot import TimeSlot
@@ -20,6 +21,7 @@ from schedule_service.schemas.lesson import (
     ClassroomNestedRead,
     GroupNestedRead,
     LessonRead,
+    OccurrenceExceptionRead,
     SubjectNestedRead,
     TeacherNestedRead,
     TimeSlotNestedRead,
@@ -30,11 +32,13 @@ from schedule_service.schemas.schedule import (
     TeacherScheduleResponse,
 )
 from schedule_service.services.export_service import (
+    date_week_parity,
     export_group_to_csv,
     export_group_to_ics,
     export_teacher_to_csv,
     export_teacher_to_ics,
 )
+from schedule_service.services.occurrences import active_on
 
 router = APIRouter()
 SessionDep = Annotated[AsyncSession, Depends(get_async_session)]
@@ -77,8 +81,10 @@ async def _fetch_days_schedule(
                 and_(
                     Lesson.specific_date.is_(None),
                     TimeSlot.day_of_week == weekday,
+                    Lesson.parity.in_([WeekParity.ALWAYS, date_week_parity(target_date)]),
                 ),
-            )
+            ),
+            active_on(target_date),
         )
 
     query = query.order_by(
@@ -90,8 +96,17 @@ async def _fetch_days_schedule(
 
     result = await session.execute(query)
     days_map: dict[int, list[LessonRead]] = {day: [] for day in range(1, 7)}
+    rows = result.all()
+    exceptions_by_lesson: dict[int, list[OccurrenceExceptionRead]] = {}
+    if target_date is None and rows:
+        ids = [row[0].id for row in rows]
+        exceptions_query = select(LessonException).where(LessonException.lesson_id.in_(ids))
+        exceptions_result = await session.execute(exceptions_query)
+        for exception in exceptions_result.scalars():
+            values = exceptions_by_lesson.setdefault(exception.lesson_id, [])
+            values.append(OccurrenceExceptionRead.model_validate(exception))
 
-    for lesson, subject, teacher, group, classroom, time_slot in result.all():
+    for lesson, subject, teacher, group, classroom, time_slot in rows:
         lesson_read = LessonRead(
             id=lesson.id,
             subject_id=lesson.subject_id,
@@ -104,6 +119,7 @@ async def _fetch_days_schedule(
             specific_date=lesson.specific_date,
             created_at=lesson.created_at,
             updated_at=lesson.updated_at,
+            exceptions=exceptions_by_lesson.get(lesson.id, []),
             subject=SubjectNestedRead.model_validate(subject),
             teacher=TeacherNestedRead.model_validate(teacher),
             group=GroupNestedRead.model_validate(group),
@@ -293,6 +309,7 @@ async def export_group_schedule_csv(
         WeekParity | None,
         Query(description="Optional filter by week parity (ODD_WEEK, EVEN_WEEK, ALWAYS)"),
     ] = None,
+    target_date: Annotated[dt.date | None, Query(alias="date")] = None,
     session: SessionDep = None,  # type: ignore[assignment]
 ) -> Response:
     """Export group schedule as a CSV attachment."""
@@ -301,6 +318,7 @@ async def export_group_schedule_csv(
             session,
             group_id=group_id,
             parity=parity,
+            target_date=target_date,
         )
     except LookupError as err:
         raise HTTPException(
@@ -394,6 +412,7 @@ async def export_teacher_schedule_csv(
         WeekParity | None,
         Query(description="Optional filter by week parity (ODD_WEEK, EVEN_WEEK, ALWAYS)"),
     ] = None,
+    target_date: Annotated[dt.date | None, Query(alias="date")] = None,
     session: SessionDep = None,  # type: ignore[assignment]
 ) -> Response:
     """Export teacher schedule as a CSV attachment."""
@@ -402,6 +421,7 @@ async def export_teacher_schedule_csv(
             session,
             teacher_id=teacher_id,
             parity=parity,
+            target_date=target_date,
         )
     except LookupError as err:
         raise HTTPException(

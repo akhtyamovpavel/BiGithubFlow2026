@@ -12,9 +12,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from schedule_service.models.classroom import Classroom
 from schedule_service.models.group import Group
 from schedule_service.models.lesson import Lesson, WeekParity
+from schedule_service.models.lesson_exception import LessonException
 from schedule_service.models.subject import Subject
 from schedule_service.models.teacher import Teacher
 from schedule_service.models.time_slot import TimeSlot
+from schedule_service.services.occurrences import active_on, week_parity
 
 __all__ = [
     "CSV_COLUMNS",
@@ -51,8 +53,7 @@ LessonRow = Row[Lesson, Subject, Teacher, Group, Classroom, TimeSlot]
 
 def date_week_parity(target_date: dt.date) -> WeekParity:
     """Return ODD_WEEK or EVEN_WEEK based on the ISO week number of ``target_date``."""
-    iso_week = target_date.isocalendar().week
-    return WeekParity.ODD_WEEK if iso_week % 2 == 1 else WeekParity.EVEN_WEEK
+    return week_parity(target_date)
 
 
 def _resolve_date_range(
@@ -87,6 +88,7 @@ async def _fetch_lessons_for_export(
     group_id: int | None = None,
     teacher_id: int | None = None,
     parity: WeekParity | None = None,
+    target_date: dt.date | None = None,
 ) -> Sequence[LessonRow]:
     """Fetch lessons with joined reference entities ordered by day and slot."""
     query = (
@@ -103,6 +105,17 @@ async def _fetch_lessons_for_export(
         query = query.where(Lesson.group_id == group_id)
     if teacher_id is not None:
         query = query.where(Lesson.teacher_id == teacher_id)
+
+    if target_date is not None:
+        query = query.where(
+            active_on(target_date),
+            (Lesson.specific_date == target_date)
+            | (
+                Lesson.specific_date.is_(None)
+                & (TimeSlot.day_of_week == target_date.isoweekday())
+                & Lesson.parity.in_([WeekParity.ALWAYS, week_parity(target_date)])
+            ),
+        )
 
     if parity in (WeekParity.ODD_WEEK, WeekParity.EVEN_WEEK):
         query = query.where(Lesson.parity.in_([parity, WeekParity.ALWAYS]))
@@ -126,6 +139,7 @@ def _build_ics_calendar(
     calendar_name: str,
     start_date: dt.date,
     end_date: dt.date,
+    exceptions: set[tuple[int, dt.date]] | None = None,
 ) -> bytes:
     """Build an RFC 5545 iCalendar (.ics) byte stream from lesson rows over a date range."""
     cal = Calendar()
@@ -144,6 +158,8 @@ def _build_ics_calendar(
         current_parity = date_week_parity(current_date)
 
         for lesson, subject, teacher, group, classroom, time_slot in rows:
+            if exceptions and (lesson.id, current_date) in exceptions:
+                continue
             if lesson.specific_date is not None:
                 if lesson.specific_date != current_date:
                     continue
@@ -183,11 +199,17 @@ def _build_ics_calendar(
     return bytes(cal.to_ical())
 
 
-def _build_csv_schedule(rows: Sequence[LessonRow]) -> str:
+def _build_csv_schedule(
+    rows: Sequence[LessonRow],
+    exceptions: dict[int, list[tuple[dt.date, str]]] | None = None,
+) -> str:
     """Build a CSV string with standard Russian schedule headers."""
     buffer = io.StringIO()
     writer = csv.writer(buffer, lineterminator="\r\n")
-    writer.writerow(CSV_COLUMNS)
+    headers = list(CSV_COLUMNS)
+    if exceptions:
+        headers.extend(["Дата", "Изменение"])
+    writer.writerow(headers)
 
     for lesson, subject, teacher, _group, classroom, time_slot in rows:
         day_label = DAY_NAMES_RU.get(time_slot.day_of_week, str(time_slot.day_of_week))
@@ -196,16 +218,21 @@ def _build_csv_schedule(rows: Sequence[LessonRow]) -> str:
         )
         classroom_label = f"{classroom.building} {classroom.room_number}"
 
-        writer.writerow(
-            [
-                day_label,
-                time_label,
-                subject.name,
-                teacher.full_name,
-                classroom_label,
-                lesson.parity.value,
-            ]
-        )
+        values = [
+            day_label,
+            time_label,
+            subject.name,
+            teacher.full_name,
+            classroom_label,
+            lesson.parity.value,
+        ]
+        if exceptions:
+            date_value = lesson.specific_date.isoformat() if lesson.specific_date else ""
+            writer.writerow([*values, date_value, ""])
+            for occurrence_date, action in exceptions.get(lesson.id, []):
+                writer.writerow([*values, occurrence_date.isoformat(), action])
+        else:
+            writer.writerow(values)
 
     return buffer.getvalue()
 
@@ -224,11 +251,13 @@ async def export_group_to_ics(
 
     resolved_start, resolved_end = _resolve_date_range(start_date, end_date)
     rows = await _fetch_lessons_for_export(session, group_id=group_id)
+    exceptions = await _fetch_exceptions(session, resolved_start, resolved_end)
     return _build_ics_calendar(
         rows,
         calendar_name=f"Расписание группы {group.name}",
         start_date=resolved_start,
         end_date=resolved_end,
+        exceptions=exceptions,
     )
 
 
@@ -236,6 +265,7 @@ async def export_group_to_csv(
     session: AsyncSession,
     group_id: int,
     parity: WeekParity | None = None,
+    target_date: dt.date | None = None,
 ) -> str:
     """Export an academic group's schedule to a CSV string."""
     group_res = await session.execute(select(Group).where(Group.id == group_id))
@@ -243,8 +273,13 @@ async def export_group_to_csv(
     if group is None:
         raise LookupError(f"Group with id {group_id} not found")
 
-    rows = await _fetch_lessons_for_export(session, group_id=group_id, parity=parity)
-    return _build_csv_schedule(rows)
+    rows = await _fetch_lessons_for_export(
+        session, group_id=group_id, parity=parity, target_date=target_date
+    )
+    exceptions = None
+    if target_date is None:
+        exceptions = await _fetch_csv_exceptions(session, rows)
+    return _build_csv_schedule(rows, exceptions)
 
 
 async def export_teacher_to_ics(
@@ -261,11 +296,13 @@ async def export_teacher_to_ics(
 
     resolved_start, resolved_end = _resolve_date_range(start_date, end_date)
     rows = await _fetch_lessons_for_export(session, teacher_id=teacher_id)
+    exceptions = await _fetch_exceptions(session, resolved_start, resolved_end)
     return _build_ics_calendar(
         rows,
         calendar_name=f"Расписание преподавателя {teacher.full_name}",
         start_date=resolved_start,
         end_date=resolved_end,
+        exceptions=exceptions,
     )
 
 
@@ -273,6 +310,7 @@ async def export_teacher_to_csv(
     session: AsyncSession,
     teacher_id: int,
     parity: WeekParity | None = None,
+    target_date: dt.date | None = None,
 ) -> str:
     """Export a teacher's schedule to a CSV string."""
     teacher_res = await session.execute(select(Teacher).where(Teacher.id == teacher_id))
@@ -280,8 +318,39 @@ async def export_teacher_to_csv(
     if teacher is None:
         raise LookupError(f"Teacher with id {teacher_id} not found")
 
-    rows = await _fetch_lessons_for_export(session, teacher_id=teacher_id, parity=parity)
-    return _build_csv_schedule(rows)
+    rows = await _fetch_lessons_for_export(
+        session, teacher_id=teacher_id, parity=parity, target_date=target_date
+    )
+    exceptions = None
+    if target_date is None:
+        exceptions = await _fetch_csv_exceptions(session, rows)
+    return _build_csv_schedule(rows, exceptions)
+
+
+async def _fetch_csv_exceptions(
+    session: AsyncSession, rows: Sequence[LessonRow]
+) -> dict[int, list[tuple[dt.date, str]]]:
+    lesson_ids = [row[0].id for row in rows]
+    query = select(LessonException).where(LessonException.lesson_id.in_(lesson_ids))
+    result = await session.execute(query)
+    exceptions: dict[int, list[tuple[dt.date, str]]] = {}
+    for exception in result.scalars():
+        entries = exceptions.setdefault(exception.lesson_id, [])
+        entries.append((exception.occurrence_date, exception.action))
+    return exceptions
+
+
+async def _fetch_exceptions(
+    session: AsyncSession, start_date: dt.date, end_date: dt.date
+) -> set[tuple[int, dt.date]]:
+    query = select(LessonException.lesson_id, LessonException.occurrence_date).where(
+        LessonException.occurrence_date.between(start_date, end_date)
+    )
+    result = await session.execute(query)
+    exceptions: set[tuple[int, dt.date]] = set()
+    for row in result:
+        exceptions.add((row[0], row[1]))
+    return exceptions
 
 
 class CalendarExportService:
