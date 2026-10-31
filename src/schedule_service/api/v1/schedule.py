@@ -30,6 +30,7 @@ from schedule_service.schemas.schedule import (
     TeacherScheduleResponse,
 )
 from schedule_service.services.export_service import (
+    date_week_parity,
     export_group_to_csv,
     export_group_to_ics,
     export_teacher_to_csv,
@@ -77,6 +78,7 @@ async def _fetch_days_schedule(
                 and_(
                     Lesson.specific_date.is_(None),
                     TimeSlot.day_of_week == weekday,
+                    Lesson.parity.in_([WeekParity.ALWAYS, date_week_parity(target_date)]),
                 ),
             )
         )
