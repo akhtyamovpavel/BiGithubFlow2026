@@ -42,6 +42,7 @@ async def db_context() -> (
                     Subject.__table__,  # type: ignore[list-item]
                     TimeSlot.__table__,  # type: ignore[list-item]
                     Lesson.__table__,  # type: ignore[list-item]
+                    Base.metadata.tables["lesson_exceptions"],
                 ],
             )
         )

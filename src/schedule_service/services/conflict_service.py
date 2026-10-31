@@ -8,11 +8,9 @@ Collision rules used by the checks in this module:
     - ``ALWAYS`` overlaps with ``ALWAYS``, ``ODD_WEEK`` and ``EVEN_WEEK``;
     - ``ODD_WEEK`` overlaps with ``ALWAYS`` and ``ODD_WEEK`` only;
     - ``EVEN_WEEK`` overlaps with ``ALWAYS`` and ``EVEN_WEEK`` only.
-* Specific (one-off) dates:
-    - a recurring lesson (``specific_date is None``) overlaps with every lesson
-      in the slot whose parity overlaps, including one-off lessons;
-    - a one-off lesson overlaps with recurring lessons whose parity overlaps
-      and with one-off lessons scheduled on the very same date.
+* On a specific date, recurring lessons follow the ISO week parity; one-off
+  lessons match their date regardless of the stored parity. An exception
+  suppresses the original occurrence on its date.
 """
 
 import enum
@@ -21,12 +19,13 @@ from dataclasses import dataclass
 from datetime import date
 from typing import Any, Protocol
 
-from sqlalchemy import or_, select
+from sqlalchemy import and_, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from schedule_service.models.classroom import Classroom
 from schedule_service.models.group import Group
 from schedule_service.models.lesson import Lesson, WeekParity
+from schedule_service.services.occurrences import active_on, week_parity
 
 __all__ = [
     "ClassroomCapacityExceededError",
@@ -181,12 +180,20 @@ async def check_teacher_conflict(
     stmt = select(Lesson).where(
         Lesson.teacher_id == teacher_id,
         Lesson.time_slot_id == time_slot_id,
-        Lesson.parity.in_(overlapping_parities(parity)),
     )
     if specific_date is not None:
         stmt = stmt.where(
-            or_(Lesson.specific_date.is_(None), Lesson.specific_date == specific_date),
+            or_(
+                Lesson.specific_date == specific_date,
+                and_(
+                    Lesson.specific_date.is_(None),
+                    Lesson.parity.in_([WeekParity.ALWAYS, week_parity(specific_date)]),
+                ),
+            ),
+            active_on(specific_date),
         )
+    else:
+        stmt = stmt.where(Lesson.parity.in_(overlapping_parities(parity)))
     if exclude_lesson_id is not None:
         stmt = stmt.where(Lesson.id != exclude_lesson_id)
     stmt = stmt.order_by(Lesson.id)
@@ -274,12 +281,20 @@ async def check_classroom_conflict(
     stmt = select(Lesson).where(
         Lesson.classroom_id == classroom_id,
         Lesson.time_slot_id == time_slot_id,
-        Lesson.parity.in_(overlapping_parities(parity)),
     )
     if specific_date is not None:
         stmt = stmt.where(
-            or_(Lesson.specific_date.is_(None), Lesson.specific_date == specific_date),
+            or_(
+                Lesson.specific_date == specific_date,
+                and_(
+                    Lesson.specific_date.is_(None),
+                    Lesson.parity.in_([WeekParity.ALWAYS, week_parity(specific_date)]),
+                ),
+            ),
+            active_on(specific_date),
         )
+    else:
+        stmt = stmt.where(Lesson.parity.in_(overlapping_parities(parity)))
     if exclude_lesson_id is not None:
         stmt = stmt.where(Lesson.id != exclude_lesson_id)
     stmt = stmt.order_by(Lesson.id)
@@ -330,12 +345,20 @@ async def check_group_conflict(
     stmt = select(Lesson).where(
         Lesson.group_id == group_id,
         Lesson.time_slot_id == time_slot_id,
-        Lesson.parity.in_(overlapping_parities(parity)),
     )
     if specific_date is not None:
         stmt = stmt.where(
-            or_(Lesson.specific_date.is_(None), Lesson.specific_date == specific_date),
+            or_(
+                Lesson.specific_date == specific_date,
+                and_(
+                    Lesson.specific_date.is_(None),
+                    Lesson.parity.in_([WeekParity.ALWAYS, week_parity(specific_date)]),
+                ),
+            ),
+            active_on(specific_date),
         )
+    else:
+        stmt = stmt.where(Lesson.parity.in_(overlapping_parities(parity)))
     if exclude_lesson_id is not None:
         stmt = stmt.where(Lesson.id != exclude_lesson_id)
     stmt = stmt.order_by(Lesson.id)

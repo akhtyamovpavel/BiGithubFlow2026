@@ -61,7 +61,8 @@ async def session() -> AsyncGenerator[AsyncSession, None]:
     """Provide a session bound to a fresh in-memory SQLite database."""
     _ensure_fk_target_tables()
     engine, session_maker = create_engine_and_sessionmaker("sqlite+aiosqlite:///:memory:")
-    tables = [Base.metadata.tables[name] for name in (*_FK_TARGET_TABLES, "lessons")]
+    table_names = (*_FK_TARGET_TABLES, "lessons", "lesson_exceptions")
+    tables = [Base.metadata.tables[name] for name in table_names]
     async with engine.begin() as conn:
         await conn.run_sync(lambda sync_conn: Base.metadata.create_all(sync_conn, tables=tables))
     async with session_maker() as db_session:
@@ -263,6 +264,15 @@ async def test_one_off_lessons_conflict_only_on_same_date(session: AsyncSession)
 
     assert len(await check_teacher_conflict(session, TEACHER, SLOT, _A, DATE)) == 1
     assert await check_teacher_conflict(session, TEACHER, SLOT, _A, OTHER_DATE) == []
+
+
+@pytest.mark.asyncio
+async def test_one_off_conflicts_on_date_even_when_stored_parity_differs(
+    session: AsyncSession,
+) -> None:
+    await _add_lesson(session, parity=WeekParity.ODD_WEEK, specific_date=DATE)
+    conflicts = await check_teacher_conflict(session, TEACHER, SLOT, WeekParity.EVEN_WEEK, DATE)
+    assert len(conflicts) == 1
 
 
 @pytest.mark.asyncio

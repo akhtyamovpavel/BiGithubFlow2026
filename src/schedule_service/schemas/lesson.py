@@ -120,12 +120,22 @@ class LessonUpdate(BaseModel):
     specific_date: date | None = Field(default=None, description="Specific date")
 
 
+class OccurrenceExceptionRead(BaseModel):
+    """A change to one dated occurrence in a recurring schedule."""
+
+    occurrence_date: date
+    action: str
+    replacement_lesson_id: int | None
+    model_config = ConfigDict(from_attributes=True)
+
+
 class LessonRead(LessonBase):
     """Schema for reading lesson data, including timestamps and optional nested objects."""
 
     id: int = Field(..., description="Unique lesson ID")
     created_at: datetime = Field(..., description="Creation timestamp")
     updated_at: datetime = Field(..., description="Last update timestamp")
+    exceptions: list[OccurrenceExceptionRead] = Field(default_factory=list)
 
     subject: SubjectNestedRead | None = Field(
         default=None,
