@@ -103,6 +103,34 @@ export interface LessonInput {
   specific_date?: string | null
 }
 
+export type OccurrenceExceptionAction = "cancel" | "move"
+
+export interface OccurrenceException {
+  occurrence_date: string
+  action: OccurrenceExceptionAction
+  replacement_lesson_id: number | null
+}
+
+export interface LessonExceptionCreateInput {
+  occurrence_date: string
+  action: OccurrenceExceptionAction
+  reason: string
+  target_date?: string | null
+  time_slot_id?: number | null
+  classroom_id?: number | null
+}
+
+export interface LessonExceptionRead {
+  id: number
+  lesson_id: number
+  occurrence_date: string
+  action: OccurrenceExceptionAction
+  replacement_lesson_id: number | null
+  author_id: number
+  reason: string
+  created_at: string
+}
+
 export interface Lesson extends Metadata {
   subject_id: number
   teacher_id: number
@@ -112,6 +140,7 @@ export interface Lesson extends Metadata {
   lesson_type: LessonType
   parity: WeekParity
   specific_date: string | null
+  exceptions?: OccurrenceException[]
   subject: { id: number; name: string; code?: string | null; description?: string | null } | null
   teacher: (TeacherInput & { id: number }) | null
   group: (GroupInput & { id: number }) | null
@@ -133,9 +162,20 @@ export interface Lesson extends Metadata {
   } | null
 }
 
+export interface DaySchedule {
+  day_of_week: number
+  lessons: Lesson[]
+}
+
+export interface GroupScheduleResponse {
+  group_id: number
+  days: DaySchedule[]
+}
+
 export interface AvailableClassroomFilters {
   time_slot_id: number
   parity?: WeekParity
+  date?: string
   min_capacity?: number
   requires_projector?: boolean
   requires_computers?: boolean
