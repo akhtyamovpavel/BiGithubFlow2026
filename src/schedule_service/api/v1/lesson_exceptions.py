@@ -9,6 +9,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 from sqlalchemy import select
 
 from schedule_service.core.auth import CurrentUser, SessionDep
+from schedule_service.core.metrics import record_conflict_detected
 from schedule_service.models.classroom import Classroom
 from schedule_service.models.lesson import Lesson, WeekParity
 from schedule_service.models.lesson_exception import LessonException
@@ -129,6 +130,8 @@ async def create_exception(
         try:
             await validate_lesson(session, replacement, exclude_lesson_id=excluded)
         except ScheduleConflictException as exc:
+            for conflict in exc.conflicts:
+                record_conflict_detected(conflict.conflict_type.value)
             conflict_types = sorted({conflict.conflict_type.value for conflict in exc.conflicts})
             logger.warning(
                 "Schedule conflict during lesson occurrence move: %s",

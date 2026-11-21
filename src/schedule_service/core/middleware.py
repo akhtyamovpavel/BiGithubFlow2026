@@ -15,6 +15,7 @@ from schedule_service.core.logging import (
     resolve_request_id,
     set_request_id,
 )
+from schedule_service.core.metrics import record_http_request
 
 logger = logging.getLogger("schedule_service.http")
 
@@ -76,7 +77,17 @@ class RequestContextMiddleware:
             )
             await error_response(scope, receive, send)
         finally:
-            duration_ms = round((time.perf_counter() - start_time) * 1000, 2)
+            duration_seconds = time.perf_counter() - start_time
+            duration_ms = round(duration_seconds * 1000, 2)
+            matched_route = scope.get("route")
+            route_path = getattr(matched_route, "path", None)
+            route_label = route_path if isinstance(route_path, str) and route_path else "unmatched"
+            record_http_request(
+                method=method,
+                route=route_label,
+                status_code=status_code,
+                duration_seconds=duration_seconds,
+            )
             if status_code >= 500:
                 log_level = logging.ERROR
             elif status_code >= 400:

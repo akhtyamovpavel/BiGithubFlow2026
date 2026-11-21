@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from schedule_service.api.v1.classrooms import query_available_classrooms
 from schedule_service.core.database import get_async_session
+from schedule_service.core.metrics import record_schedule_export
 from schedule_service.models.classroom import Classroom
 from schedule_service.models.group import Group
 from schedule_service.models.lesson import Lesson, WeekParity
@@ -279,6 +280,7 @@ async def export_group_schedule_ics(
             detail=str(err),
         ) from err
 
+    record_schedule_export("ics", "group")
     return Response(
         content=ics_bytes,
         media_type="text/calendar",
@@ -326,6 +328,7 @@ async def export_group_schedule_csv(
             detail=str(err),
         ) from err
 
+    record_schedule_export("csv", "group")
     return Response(
         content=csv_text,
         media_type="text/csv",
@@ -382,6 +385,7 @@ async def export_teacher_schedule_ics(
             detail=str(err),
         ) from err
 
+    record_schedule_export("ics", "teacher")
     return Response(
         content=ics_bytes,
         media_type="text/calendar",
@@ -429,6 +433,7 @@ async def export_teacher_schedule_csv(
             detail=str(err),
         ) from err
 
+    record_schedule_export("csv", "teacher")
     return Response(
         content=csv_text,
         media_type="text/csv",

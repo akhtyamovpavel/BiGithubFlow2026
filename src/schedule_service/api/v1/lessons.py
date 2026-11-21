@@ -11,6 +11,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from schedule_service.core.database import get_async_session
+from schedule_service.core.metrics import record_conflict_detected, record_lesson_created
 from schedule_service.models.classroom import Classroom
 from schedule_service.models.group import Group
 from schedule_service.models.lesson import Lesson, LessonType, WeekParity
@@ -50,7 +51,9 @@ def _log_lesson_conflict(
     classroom_id: int,
     time_slot_id: int,
 ) -> None:
-    """Emit a WARNING log entry describing detected schedule conflicts."""
+    """Emit a WARNING log entry and increment metrics for detected schedule conflicts."""
+    for conflict in exc.conflicts:
+        record_conflict_detected(conflict.conflict_type.value)
     conflict_types = sorted({conflict.conflict_type.value for conflict in exc.conflicts})
     extra: dict[str, Any] = {
         "event": "lesson_conflict",
@@ -244,6 +247,7 @@ async def create_lesson(
         await session.refresh(lesson)
     except IntegrityError as err:
         await session.rollback()
+        record_conflict_detected("INTEGRITY_ERROR")
         logger.warning(
             "Lesson create failed due to database integrity constraint",
             extra={
@@ -258,6 +262,7 @@ async def create_lesson(
             detail="Failed to create lesson due to a database integrity constraint",
         ) from err
 
+    record_lesson_created(lesson.lesson_type.value)
     logger.info(
         "Lesson created",
         extra={
@@ -345,6 +350,7 @@ async def update_lesson(
         await session.refresh(lesson)
     except IntegrityError as err:
         await session.rollback()
+        record_conflict_detected("INTEGRITY_ERROR")
         logger.warning(
             "Lesson update failed due to database integrity constraint",
             extra={
@@ -427,6 +433,7 @@ async def _reject_exception_lesson(
         | (LessonException.replacement_lesson_id == lesson_id)
     )
     if (await session.execute(query)).first() is not None:
+        record_conflict_detected("OCCURRENCE_EXCEPTION")
         logger.warning(
             "Lesson %s rejected due to existing occurrence exception",
             operation,

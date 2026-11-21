@@ -1,19 +1,25 @@
 """Main application entry point."""
 
+import logging
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
+from typing import Annotated
 
 from fastapi import Depends, FastAPI, Request, Response, status
 from fastapi.encoders import jsonable_encoder
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from schedule_service.api.v1.router import api_v1_router
 from schedule_service.core.config import Settings, get_settings
-from schedule_service.core.database import check_database_health
+from schedule_service.core.database import check_database_health, get_async_session
 from schedule_service.core.logging import configure_logging
+from schedule_service.core.metrics import refresh_db_entity_counts, render_metrics
 from schedule_service.core.middleware import RequestContextMiddleware
 from schedule_service.schemas.health import HealthResponse, ReadinessResponse
+
+logger = logging.getLogger("schedule_service.main")
 
 
 @asynccontextmanager
@@ -107,6 +113,32 @@ def create_app() -> FastAPI:
             version=settings.version,
             database="unavailable",
         )
+
+    @app.get(
+        "/metrics",
+        summary="Prometheus Metrics",
+        description=(
+            "Exposes HTTP RED metrics and ScheduleService business metrics "
+            "in Prometheus text exposition format."
+        ),
+        tags=["Observability"],
+        response_class=Response,
+    )
+    async def metrics_endpoint(
+        session: Annotated[AsyncSession, Depends(get_async_session)],
+    ) -> Response:
+        """Refresh database entity gauges and return Prometheus metrics."""
+        try:
+            await refresh_db_entity_counts(session)
+        except Exception:
+            await session.rollback()
+            logger.warning(
+                "Failed to refresh database entity counts for /metrics",
+                extra={"event": "metrics_db_refresh_failed"},
+                exc_info=True,
+            )
+        payload, content_type = render_metrics()
+        return Response(content=payload, media_type=content_type)
 
     return app
 
