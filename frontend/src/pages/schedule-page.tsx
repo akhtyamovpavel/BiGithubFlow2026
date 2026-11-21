@@ -141,13 +141,13 @@ export function SchedulePage() {
     setError("")
     setDemo(false)
 
-    void Promise.all([
+    const metaAndExceptions = Promise.all([
       groupsApi.list({ limit: 100 }, controller.signal).catch(() => [] as Group[]),
       teachersApi.list({ limit: 100 }, controller.signal).catch(() => [] as Teacher[]),
       classroomsApi.list({ limit: 100 }, controller.signal).catch(() => [] as Classroom[]),
       subjectsApi.list({ limit: 100 }, controller.signal).catch(() => [] as Subject[]),
       timeSlotsApi.list({ limit: 100 }, controller.signal).catch(() => [] as TimeSlot[]),
-    ]).then(([loadedGroups, loadedTeachers, loadedClassrooms, loadedSubjects, loadedSlots]) => {
+    ]).then(async ([loadedGroups, loadedTeachers, loadedClassrooms, loadedSubjects, loadedSlots]) => {
       if (controller.signal.aborted) return
       setGroups(loadedGroups)
       setTeachers(loadedTeachers)
@@ -157,24 +157,23 @@ export function SchedulePage() {
       if (loadedSlots.length > 0) {
         setSearchSlotId((prev) => prev || String(loadedSlots[0].id))
       }
-      void Promise.all(
+      const schedules = await Promise.all(
         loadedGroups.map((g) => getGroupSchedule(g.id, {}, controller.signal).catch(() => null)),
-      ).then((schedules) => {
-        if (controller.signal.aborted) return
-        const map: Record<number, OccurrenceException[]> = {}
-        for (const schedule of schedules) {
-          if (!schedule) continue
-          for (const day of schedule.days) {
-            for (const item of day.lessons) {
-              if (item.exceptions?.length) map[item.id] = item.exceptions
-            }
+      )
+      if (controller.signal.aborted) return
+      const map: Record<number, OccurrenceException[]> = {}
+      for (const schedule of schedules) {
+        if (!schedule) continue
+        for (const day of schedule.days) {
+          for (const item of day.lessons) {
+            if (item.exceptions?.length) map[item.id] = item.exceptions
           }
         }
-        setExceptionsByLesson(map)
-      })
+      }
+      setExceptionsByLesson(map)
     })
 
-    getLessons(controller.signal)
+    const lessonsLoad = getLessons(controller.signal)
       .then((records) => {
         if (!controller.signal.aborted) {
           setLessons(records)
@@ -192,11 +191,12 @@ export function SchedulePage() {
           setError(errorMessage(failure))
         }
       })
-      .finally(() => {
-        if (!controller.signal.aborted) {
-          setLoading(false)
-        }
-      })
+
+    void Promise.all([metaAndExceptions, lessonsLoad]).finally(() => {
+      if (!controller.signal.aborted) {
+        setLoading(false)
+      }
+    })
     return () => controller.abort()
   }, [revision])
 
