@@ -1,8 +1,28 @@
+map $http_x_request_id $resolved_request_id {
+    "~^[A-Za-z0-9._-]{1,128}$" $http_x_request_id;
+    default $request_id;
+}
+
+log_format json_access escape=json
+    '{"timestamp":"$time_iso8601",'
+    '"service":"nginx",'
+    '"request_id":"$resolved_request_id",'
+    '"method":"$request_method",'
+    '"uri":"$uri",'
+    '"status":$status,'
+    '"duration_s":$request_time,'
+    '"upstream_duration_s":"$upstream_response_time",'
+    '"bytes_sent":$body_bytes_sent,'
+    '"remote_addr":"$remote_addr"}';
+
 server {
     listen 80;
     server_name _;
     root /usr/share/nginx/html;
     index index.html;
+
+    access_log /dev/stdout json_access;
+    add_header X-Request-ID $resolved_request_id always;
 
     location /api/ {
         proxy_pass ${BACKEND_URL};
@@ -10,6 +30,8 @@ server {
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header X-Request-ID $resolved_request_id;
+        proxy_hide_header X-Request-ID;
         proxy_connect_timeout 5s;
         proxy_read_timeout 15s;
     }
@@ -17,6 +39,8 @@ server {
     location /health {
         proxy_pass ${BACKEND_URL};
         proxy_set_header Host $host;
+        proxy_set_header X-Request-ID $resolved_request_id;
+        proxy_hide_header X-Request-ID;
         proxy_connect_timeout 5s;
         proxy_read_timeout 15s;
     }
@@ -27,6 +51,8 @@ server {
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header X-Request-ID $resolved_request_id;
+        proxy_hide_header X-Request-ID;
         proxy_connect_timeout 5s;
         proxy_read_timeout 15s;
     }
@@ -34,6 +60,7 @@ server {
     location /assets/ {
         try_files $uri =404;
         add_header Cache-Control "public, max-age=31536000, immutable";
+        add_header X-Request-ID $resolved_request_id always;
     }
 
     location = /stub_status {
@@ -43,6 +70,7 @@ server {
     location / {
         try_files $uri $uri/ /index.html;
         add_header Cache-Control "no-cache";
+        add_header X-Request-ID $resolved_request_id always;
     }
 }
 

@@ -151,3 +151,27 @@ docker compose -f docker-compose.yml -f docker-compose.observability.yml restart
 - **Общий экземпляр Grafana с задачей мониторинга (#50)**:
   - `observability/grafana/provisioning/datasources/` загружает каждый файл datasource отдельно (`loki.yml` принадлежит #48; задача #50 добавляет рядом `prometheus.yml` без конфликта).
   - `observability/grafana/provisioning/dashboards/dashboards.yml` автоматически подхватывает все JSON-дашборды из `observability/grafana/dashboards/` (`logs.json` принадлежит #48; задача #50 добавляет рядом `metrics.json`).
+
+---
+
+## 7. JSON-логи Nginx и сквозной проброс `X-Request-ID` (#61)
+
+В [`frontend/nginx.conf.template`](../frontend/nginx.conf.template) настроен формат `json_access` (`escape=json`) и безопасный проброс `X-Request-ID`:
+- Входящий `X-Request-ID` принимается только по шаблону `^[A-Za-z0-9._-]{1,128}$` (совпадает с валидацией FastAPI); при отсутствии или некорректном значении подставляется сгенерированный Nginx `$request_id`.
+- Идентификатор передаётся в FastAPI (`proxy_set_header X-Request-ID $resolved_request_id`), а дублирование заголовка ответа исключено через `proxy_hide_header X-Request-ID` + единый `add_header X-Request-ID $resolved_request_id always` (включая ошибки прокси `502`/`504` и `404`).
+- В access-лог пишутся `timestamp`, `service`, `request_id`, `method`, `uri` (без query string, чтобы не раскрывать токены/пароли), `status`, `duration_s`, `upstream_duration_s`, `bytes_sent`, `remote_addr`.
+
+### Проверка в Docker Compose
+```bash
+# 1. Валидация конфигурации Nginx
+docker compose exec -T frontend nginx -t
+
+# 2. Запрос через Nginx: ровно один X-Request-ID, совпадает в ответе, логах Nginx и FastAPI
+RID="trace-demo-001"
+curl -sD - -o /dev/null -H "X-Request-ID: ${RID}" http://localhost:8080/health/ready | grep -i '^x-request-id:'
+docker compose logs --tail=20 frontend | grep "${RID}"
+docker compose logs --tail=20 app | grep "${RID}"
+
+# 3. Невалидный X-Request-ID заменяется безопасным идентификатором, а при 502 заголовок сохраняется
+curl -sD - -o /dev/null -H 'X-Request-ID: bad value!' http://localhost:8080/health/ready | grep -i '^x-request-id:'
+```
