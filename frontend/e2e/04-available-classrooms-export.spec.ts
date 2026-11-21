@@ -1,13 +1,35 @@
+import fs from "node:fs"
 import { expect, test } from "@playwright/test"
+import {
+  apiLogin,
+  E2E_ADMIN_PASSWORD,
+  E2E_ADMIN_USERNAME,
+  E2E_READER_PASSWORD,
+  E2E_READER_USERNAME,
+  ensureUser,
+  loginViaUi,
+} from "./helpers/auth"
 
 test.describe("Сценарий 4 — Поиск свободных аудиторий и экспорт", () => {
-  test("фильтрация свободных аудиторий по слоту и вместимости, скачивание .ics и .csv", async ({
+  test.beforeEach(async ({ request }) => {
+    const adminToken = await apiLogin(request, E2E_ADMIN_USERNAME, E2E_ADMIN_PASSWORD)
+    await ensureUser(request, adminToken, {
+      username: E2E_READER_USERNAME,
+      password: E2E_READER_PASSWORD,
+      role: "reader",
+    })
+  })
+
+  test("читатель ищет свободные аудитории и экспортирует расписание в .ics и .csv без прав редактирования", async ({
     page,
   }) => {
-    await page.goto("/schedule")
+    await loginViaUi(page, E2E_READER_USERNAME, E2E_READER_PASSWORD, "/schedule")
     await expect(
       page.getByRole("heading", { name: "Сетка расписания", exact: true }),
     ).toBeVisible()
+
+    // Читатель не видит кнопку добавления занятия
+    await expect(page.getByRole("button", { name: "Добавить занятие", exact: true })).toHaveCount(0)
 
     // 1. Поиск свободных аудиторий на Понедельник · 1 пара (где Главный корпус · 115 занята) с вместимостью >= 50
     const searchSection = page.getByRole("region", {
@@ -31,20 +53,24 @@ test.describe("Сценарий 4 — Поиск свободных аудито
     await expect(searchSection.getByText("Главный корпус · 115", { exact: true })).toHaveCount(0)
     await expect(searchSection.getByText("КПМ · 505", { exact: true })).toHaveCount(0)
 
-    // 2. Проверка скачивания расписания в форматах .ics и .csv
+    // 2. Проверка скачивания расписания в форматах .ics и .csv с авторизацией
     await page.getByRole("combobox", { name: "Академическая группа", exact: true }).click()
     await page.getByRole("option", { name: "Б05-401", exact: true }).click()
 
     const icsDownloadPromise = page.waitForEvent("download")
-    await page.getByRole("link", { name: "Скачать .ics", exact: true }).click()
+    await page.getByRole("button", { name: "Скачать .ics", exact: true }).click()
     const icsDownload = await icsDownloadPromise
     expect(icsDownload.suggestedFilename()).toMatch(/^schedule_group_\d+\.ics$/)
-    expect(await icsDownload.path()).toBeTruthy()
+    const icsPath = await icsDownload.path()
+    expect(icsPath).toBeTruthy()
+    expect(fs.readFileSync(icsPath!, "utf-8")).toContain("BEGIN:VCALENDAR")
 
     const csvDownloadPromise = page.waitForEvent("download")
-    await page.getByRole("link", { name: "Скачать .csv", exact: true }).click()
+    await page.getByRole("button", { name: "Скачать .csv", exact: true }).click()
     const csvDownload = await csvDownloadPromise
     expect(csvDownload.suggestedFilename()).toMatch(/^schedule_group_\d+\.csv$/)
-    expect(await csvDownload.path()).toBeTruthy()
+    const csvPath = await csvDownload.path()
+    expect(csvPath).toBeTruthy()
+    expect(fs.readFileSync(csvPath!, "utf-8")).toContain("Предмет")
   })
 })

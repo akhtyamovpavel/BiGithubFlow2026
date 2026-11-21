@@ -43,13 +43,20 @@ jobs:
           curl --fail --silent --show-error --retry 15 --retry-delay 2 --retry-all-errors http://localhost:8080/health/ready
           curl --fail --silent --show-error --retry 15 --retry-delay 2 --retry-all-errors http://localhost:8080/ > /dev/null
 
-      - name: Apply Alembic migrations and seed demonstration data
+      - name: Apply Alembic migrations, seed demo data, and bootstrap initial E2E admin
+        env:
+          E2E_ADMIN_USERNAME: admin
+          E2E_ADMIN_PASSWORD: AdminPass123!
         run: |
           docker compose exec -T app alembic upgrade head
           docker compose exec -T app python -m scripts.seed_demo_data
+          docker compose exec -T -e E2E_ADMIN_USERNAME -e E2E_ADMIN_PASSWORD app python -c "import asyncio, os; from schedule_service.create_admin import create_admin; asyncio.run(create_admin(os.environ['E2E_ADMIN_USERNAME'], os.environ['E2E_ADMIN_PASSWORD']))"
 
       - name: Run Playwright E2E tests
         working-directory: frontend
+        env:
+          E2E_ADMIN_USERNAME: admin
+          E2E_ADMIN_PASSWORD: AdminPass123!
         run: xvfb-run --auto-servernum npx playwright test
 
       - name: Collect and assemble E2E demo videos

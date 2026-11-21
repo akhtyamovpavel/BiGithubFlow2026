@@ -8,6 +8,7 @@ import type {
   GroupInput,
   Lesson,
   LessonInput,
+  LoginInput,
   Readiness,
   Subject,
   SubjectFilters,
@@ -17,11 +18,47 @@ import type {
   TeacherInput,
   TimeSlot,
   TimeSlotFilters,
+  TokenResponse,
+  User,
+  UserCreateInput,
+  UserUpdateInput,
 } from "@/lib/models"
 
 export const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || "/api/v1").replace(/\/$/, "")
 const healthDefault = new URL(API_BASE_URL, window.location.origin).origin + "/health/ready"
 const HEALTH_URL = import.meta.env.VITE_HEALTH_URL || healthDefault
+export const ACCESS_TOKEN_STORAGE_KEY = "schedule_service_access_token"
+
+type UnauthorizedHandler = () => void
+let unauthorizedHandler: UnauthorizedHandler | null = null
+
+export function setUnauthorizedHandler(handler: UnauthorizedHandler | null): void {
+  unauthorizedHandler = handler
+}
+
+export function getAccessToken(): string | null {
+  try {
+    return window.localStorage.getItem(ACCESS_TOKEN_STORAGE_KEY)
+  } catch {
+    return null
+  }
+}
+
+export function setAccessToken(token: string): void {
+  try {
+    window.localStorage.setItem(ACCESS_TOKEN_STORAGE_KEY, token)
+  } catch {
+    // Storage can be unavailable in restricted contexts.
+  }
+}
+
+export function clearAccessToken(): void {
+  try {
+    window.localStorage.removeItem(ACCESS_TOKEN_STORAGE_KEY)
+  } catch {
+    // Ignore storage cleanup failures.
+  }
+}
 
 interface ValidationIssue {
   loc: (string | number)[]
@@ -55,7 +92,10 @@ function isValidationIssue(value: unknown): value is ValidationIssue {
   )
 }
 
-async function responseError(response: Response): Promise<ApiError> {
+async function responseError(
+  response: Response,
+  options: { isLogin?: boolean } = {},
+): Promise<ApiError> {
   let detail: unknown
   let conflicts: unknown
   try {
@@ -74,10 +114,17 @@ async function responseError(response: Response): Promise<ApiError> {
     // Proxies can return HTML instead of FastAPI's JSON error body.
   }
   const messages: Record<number, string> = {
+    401: options.isLogin
+      ? "Неверный логин или пароль, либо аккаунт заблокирован."
+      : "Сессия истекла или недействительна. Войди в систему повторно.",
+    403: "Недостаточно прав для выполнения этого действия.",
     404: "Запись не найдена. Возможно, её уже удалили. Обнови список.",
     409: "Не удалось сохранить: запись с такими данными уже существует или связана с расписанием.",
     422: "Проверь значения полей формы.",
     503: "Сервис временно недоступен. Попробуй ещё раз позже.",
+  }
+  if (response.status === 409 && detail === "Username already exists") {
+    messages[409] = "Пользователь с таким логином уже существует."
   }
   if (response.status === 409 && Array.isArray(conflicts) && conflicts.length > 0) {
     const reasons = Array.from(
@@ -111,21 +158,41 @@ async function responseError(response: Response): Promise<ApiError> {
   return new ApiError(response.status, message, fields)
 }
 
-export async function request<T>(url: string, options: RequestInit = {}): Promise<T> {
+interface RequestOptions extends RequestInit {
+  skipAuth?: boolean
+  isLogin?: boolean
+  suppressUnauthorizedEvent?: boolean
+}
+
+export async function request<T>(url: string, options: RequestOptions = {}): Promise<T> {
+  const { skipAuth, isLogin, suppressUnauthorizedEvent, ...fetchOptions } = options
   const controller = new AbortController()
   const timeout = window.setTimeout(() => controller.abort(), 15000)
   let signal = controller.signal
-  if (options.signal) {
-    signal = AbortSignal.any([options.signal, controller.signal])
+  if (fetchOptions.signal) {
+    signal = AbortSignal.any([fetchOptions.signal, controller.signal])
+  }
+  const token = skipAuth ? null : getAccessToken()
+  const headers = new Headers(fetchOptions.headers)
+  if (!headers.has("Accept")) {
+    headers.set("Accept", "application/json")
+  }
+  if (token && !headers.has("Authorization")) {
+    headers.set("Authorization", `Bearer ${token}`)
   }
   try {
     const response = await fetch(url, {
-      ...options,
+      ...fetchOptions,
       signal,
-      headers: { Accept: "application/json", ...options.headers },
+      headers,
     })
     if (!response.ok) {
-      throw await responseError(response)
+      const error = await responseError(response, { isLogin })
+      if (response.status === 401 && !isLogin && !suppressUnauthorizedEvent && token) {
+        clearAccessToken()
+        unauthorizedHandler?.()
+      }
+      throw error
     }
     if (response.status === 204) {
       return undefined as T
@@ -135,7 +202,7 @@ export async function request<T>(url: string, options: RequestInit = {}): Promis
     if (error instanceof ApiError) {
       throw error
     }
-    if (signal.aborted && options.signal?.aborted) {
+    if (signal.aborted && fetchOptions.signal?.aborted) {
       throw error
     }
     throw new ApiError(0, "Нет связи с сервером. Проверь подключение и повтори запрос.")
@@ -181,6 +248,49 @@ function createResource<T, Input, Filters extends object>(resource: string) {
   }
 }
 
+export const authApi = {
+  login: (input: LoginInput) =>
+    request<TokenResponse>(`${API_BASE_URL}/auth/login`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(input),
+      skipAuth: true,
+      isLogin: true,
+    }),
+  logout: () =>
+    request<void>(`${API_BASE_URL}/auth/logout`, {
+      method: "POST",
+      suppressUnauthorizedEvent: true,
+    }),
+  me: (signal?: AbortSignal) =>
+    request<User>(`${API_BASE_URL}/auth/me`, {
+      signal,
+      suppressUnauthorizedEvent: true,
+    }),
+}
+
+export const usersApi = {
+  list: async (signal?: AbortSignal) => {
+    const records = await request<User[]>(`${API_BASE_URL}/users`, { signal })
+    if (!Array.isArray(records)) {
+      throw new ApiError(0, "Сервис вернул список пользователей в неизвестном формате.")
+    }
+    return records
+  },
+  create: (input: UserCreateInput) =>
+    request<User>(`${API_BASE_URL}/users`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(input),
+    }),
+  update: (id: number, input: UserUpdateInput) =>
+    request<User>(`${API_BASE_URL}/users/${id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(input),
+    }),
+}
+
 export const groupsApi = createResource<Group, GroupInput, GroupFilters>("groups")
 export const teachersApi = createResource<Teacher, TeacherInput, TeacherFilters>("teachers")
 export const classroomsApi = createResource<Classroom, ClassroomInput, ClassroomFilters>(
@@ -204,7 +314,9 @@ export const getAvailableClassrooms = async (
   return records
 }
 
-export const getReadiness = (signal?: AbortSignal) => request<Readiness>(HEALTH_URL, { signal })
+export const getReadiness = (signal?: AbortSignal) =>
+  request<Readiness>(HEALTH_URL, { signal, skipAuth: true })
+
 export const getLessons = async (signal?: AbortSignal) => {
   const path = import.meta.env.VITE_SCHEDULE_PATH || "/lessons/"
   const lessons = await request<Lesson[]>(`${API_BASE_URL}${path}`, { signal })
@@ -212,6 +324,40 @@ export const getLessons = async (signal?: AbortSignal) => {
     throw new ApiError(0, "Сервис вернул расписание в неизвестном формате.")
   }
   return lessons
+}
+
+export async function downloadExportFile(path: string, fallbackFilename: string): Promise<void> {
+  const token = getAccessToken()
+  const headers = new Headers()
+  if (token) {
+    headers.set("Authorization", `Bearer ${token}`)
+  }
+  let response: Response
+  try {
+    response = await fetch(`${API_BASE_URL}${path}`, { headers })
+  } catch {
+    throw new ApiError(0, "Нет связи с сервером. Проверь подключение и повтори запрос.")
+  }
+  if (!response.ok) {
+    const error = await responseError(response)
+    if (response.status === 401 && token) {
+      clearAccessToken()
+      unauthorizedHandler?.()
+    }
+    throw error
+  }
+  const disposition = response.headers.get("content-disposition") || ""
+  const filenameMatch = disposition.match(/filename="?([^";]+)"?/i)
+  const filename = filenameMatch?.[1] || fallbackFilename
+  const blob = await response.blob()
+  const objectUrl = window.URL.createObjectURL(blob)
+  const link = document.createElement("a")
+  link.href = objectUrl
+  link.download = filename
+  document.body.appendChild(link)
+  link.click()
+  link.remove()
+  window.setTimeout(() => window.URL.revokeObjectURL(objectUrl), 1000)
 }
 
 export function errorMessage(error: unknown): string {

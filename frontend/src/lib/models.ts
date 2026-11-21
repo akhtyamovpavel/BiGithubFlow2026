@@ -148,3 +148,34 @@ export interface Readiness {
   version: string
   database: string
 }
+
+export type UserRole = "admin" | "dispatcher" | "reader"
+
+export interface User {
+  id: number
+  username: string
+  role: UserRole
+  is_active: boolean
+}
+
+export interface LoginInput {
+  username: string
+  password: string
+}
+
+export interface TokenResponse {
+  access_token: string
+  token_type: string
+  expires_in: number
+}
+
+export interface UserCreateInput {
+  username: string
+  password: string
+  role: UserRole
+}
+
+export interface UserUpdateInput {
+  role?: UserRole
+  is_active?: boolean
+}
