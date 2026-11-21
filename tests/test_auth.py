@@ -156,7 +156,7 @@ async def test_all_schedule_routes_require_expected_role(
             assert anonymous.status_code == 401, (method, path, anonymous.text)
             reader = await client.request(method, path, headers=reader_headers)
             dispatcher = await client.request(method, path, headers=dispatcher_headers)
-            if method == "GET":
+            if method == "GET" and not path.startswith("/api/v1/schedule/import"):
                 assert reader.status_code != 403, (method, path)
             else:
                 assert reader.status_code == 403, (method, path)

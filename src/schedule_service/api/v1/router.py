@@ -4,6 +4,7 @@ from fastapi import APIRouter, Depends
 
 from schedule_service.api.v1.auth import router as auth_router
 from schedule_service.api.v1.classrooms import router as classrooms_router
+from schedule_service.api.v1.csv_import import router as csv_import_router
 from schedule_service.api.v1.groups import router as groups_router
 from schedule_service.api.v1.lesson_exceptions import router as lesson_exceptions_router
 from schedule_service.api.v1.lessons import router as lessons_router
@@ -49,6 +50,11 @@ protected_router.include_router(
     tags=["Lessons"],
 )
 protected_router.include_router(lesson_exceptions_router, prefix="/lessons", tags=["Lessons"])
+protected_router.include_router(
+    csv_import_router,
+    prefix="/schedule/import",
+    tags=["Schedule Import"],
+)
 protected_router.include_router(
     schedule_router,
     prefix="/schedule",

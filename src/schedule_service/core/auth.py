@@ -77,3 +77,11 @@ async def require_admin(user: CurrentUser) -> User:
             status_code=status.HTTP_403_FORBIDDEN, detail="Insufficient permissions"
         )
     return user
+
+
+async def require_schedule_editor(user: CurrentUser) -> User:
+    if user.role not in {UserRole.ADMIN.value, UserRole.DISPATCHER.value}:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN, detail="Insufficient permissions"
+        )
+    return user
