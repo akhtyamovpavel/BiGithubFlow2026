@@ -109,3 +109,34 @@ docker compose -f docker-compose.prod.yml up -d app
 ```
 
 Alembic автоматически применит новые миграции схемы БД во время старта обновленного контейнера.
+
+---
+
+## 5. Экспортеры мониторинга (PostgreSQL и Nginx)
+
+В `docker-compose.yml` и `docker-compose.prod.yml` подключены экспортеры в выделенной внутренней Docker-сети `monitoring` (порты экспортеров и `stub_status` не публикуются наружу):
+
+| Сервис | Адрес для Prometheus (сеть `monitoring`) | Источник / назначение |
+|---|---|---|
+| `postgres-exporter` | `http://postgres-exporter:9187/metrics` | Метрики PostgreSQL (`pg_up`, соединения, транзакции, размер БД) |
+| `nginx-exporter` | `http://nginx-exporter:9113/metrics` | Метрики Nginx (`nginx_up`, `nginx_connections_active`, `nginx_http_requests_total`) |
+| `frontend` (внутр.) | `http://frontend:8081/stub_status` | Внутренний `stub_status` Nginx (изолирован от порта `80`) |
+
+### Учётные данные экспортера PostgreSQL
+- По умолчанию `postgres-exporter` берёт `POSTGRES_USER` и `POSTGRES_PASSWORD` из `.env` (в production `POSTGRES_PASSWORD` обязателен, пароли не хранятся в репозитории).
+- Для принципа наименьших привилегий можно задать в `.env` отдельного пользователя с ролью `pg_monitor`: `POSTGRES_EXPORTER_USER` и `POSTGRES_EXPORTER_PASSWORD`.
+
+### Проверка работы экспортеров и перезапуска стека
+```bash
+# Метрики PostgreSQL и Nginx внутри сети monitoring
+docker compose exec -T frontend wget -qO- http://postgres-exporter:9187/metrics | grep '^pg_up '
+docker compose exec -T frontend wget -qO- http://nginx-exporter:9113/metrics | grep '^nginx_up '
+
+# Проверка изоляции stub_status (снаружи на порту 8080 не отдаётся)
+curl -s -o /dev/null -w "%{http_code}\n" http://localhost:8080/stub_status
+
+# Проверка сохранения сбора метрик после перезапуска
+docker compose restart postgres frontend postgres-exporter nginx-exporter
+docker compose exec -T frontend wget -qO- http://postgres-exporter:9187/metrics | grep '^pg_up 1'
+docker compose exec -T frontend wget -qO- http://nginx-exporter:9113/metrics | grep '^nginx_up 1'
+```
