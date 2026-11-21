@@ -6,6 +6,11 @@ from schedule_service.schemas.classroom import (
     ClassroomRead,
     ClassroomUpdate,
 )
+from schedule_service.schemas.csv_import import (
+    CsvImportBatchResponse,
+    ImportPreviewRow,
+    ImportRowError,
+)
 from schedule_service.schemas.group import GroupBase, GroupCreate, GroupRead, GroupUpdate
 from schedule_service.schemas.health import HealthResponse, ReadinessResponse
 from schedule_service.schemas.lesson import (
@@ -51,6 +56,7 @@ __all__ = [
     "ClassroomNestedRead",
     "ClassroomRead",
     "ClassroomUpdate",
+    "CsvImportBatchResponse",
     "DaySchedule",
     "GroupBase",
     "GroupCreate",
@@ -59,6 +65,8 @@ __all__ = [
     "GroupScheduleResponse",
     "GroupUpdate",
     "HealthResponse",
+    "ImportPreviewRow",
+    "ImportRowError",
     "LessonBase",
     "LessonCreate",
     "LessonRead",
