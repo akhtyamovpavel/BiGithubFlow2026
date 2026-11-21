@@ -1,0 +1,133 @@
+server:
+  http_listen_port: 9080
+  grpc_listen_port: 0
+  log_level: info
+
+positions:
+  filename: /var/lib/promtail/positions.yaml
+
+clients:
+  - url: http://loki:3100/loki/api/v1/push
+
+scrape_configs:
+  - job_name: schedule-service-docker
+    docker_sd_configs:
+      - host: unix:///var/run/docker.sock
+        refresh_interval: 5s
+        filters:
+          - name: label
+            values: ["logging=promtail"]
+    relabel_configs:
+      # Keep only ScheduleService containers explicitly opted-in with logging=promtail
+      - source_labels: [__meta_docker_container_label_logging]
+        regex: promtail
+        action: keep
+
+      # Normalize container name (strip leading slash)
+      - source_labels: [__meta_docker_container_name]
+        regex: "/(.*)"
+        target_label: container
+
+      # Preserve original Docker Compose service and project labels
+      - source_labels: [__meta_docker_container_label_com_docker_compose_service]
+        target_label: compose_service
+
+      - source_labels: [__meta_docker_container_label_com_docker_compose_project]
+        target_label: compose_project
+
+      # Preserve container output stream (stdout / stderr)
+      - source_labels: [__meta_docker_container_log_stream]
+        target_label: stream
+
+      # Determine canonical service label: app, nginx, postgres
+      - source_labels: [__meta_docker_container_label_com_docker_compose_service]
+        target_label: service
+
+      - source_labels: [__meta_docker_container_label_com_docker_compose_service]
+        regex: frontend
+        replacement: nginx
+        target_label: service
+
+      - source_labels: [__meta_docker_container_label_logging_service]
+        regex: (.+)
+        target_label: service
+
+    pipeline_stages:
+      # Defense-in-depth redaction: Promtail replace stage replaces captured group(s) only
+      - replace:
+          expression: '(?i)authorization["\s:=]+(?:bearer\s+)?([^\s",;}]+)'
+          replace: "[REDACTED]"
+      - replace:
+          expression: '(?i)"?(?:password|passwd|secret|access_token|refresh_token|session_id|cookie)"?\s*[:=]\s*"?([^"\s,;}]+)'
+          replace: "[REDACTED]"
+
+      # Parse structured JSON logs produced by FastAPI (#47) and Nginx (#61)
+      - json:
+          expressions:
+            json_level: level
+            json_levelname: levelname
+            json_severity: severity
+            json_request_id: request_id
+            json_x_request_id: x_request_id
+            json_status: status
+            json_status_code: status_code
+
+      # Fallback extraction for PostgreSQL logs (e.g. "2026-... UTC [1] LOG: ...")
+      - match:
+          selector: '{service="postgres"}'
+          stages:
+            - regex:
+                expression: '(?i)\b(?P<pg_level>PANIC|FATAL|ERROR|WARNING|NOTICE|LOG|INFO|DEBUG\d?)\s*:'
+
+      # Fallback extraction for Nginx error logs (e.g. "2026/... [error] ...")
+      - match:
+          selector: '{service="nginx"}'
+          stages:
+            - regex:
+                expression: '\[(?P<nginx_err_level>emerg|alert|crit|error|warn|notice|info|debug)\]'
+
+      # Fallback extraction for Uvicorn / Python plain-text logs (e.g. "INFO: ...")
+      - match:
+          selector: '{service="app"}'
+          stages:
+            - regex:
+                expression: '^(?P<uvicorn_level>CRITICAL|ERROR|WARNING|INFO|DEBUG):'
+
+      # Pick canonical request_id from JSON fields
+      - template:
+          source: request_id
+          template: '{{ if .json_request_id }}{{ .json_request_id }}{{ else if .json_x_request_id }}{{ .json_x_request_id }}{{ end }}'
+
+      # Pick raw level candidate across JSON, status code, and service-specific regexes
+      - template:
+          source: raw_level
+          template: >-
+            {{- if .json_level -}}{{ .json_level }}
+            {{- else if .json_levelname -}}{{ .json_levelname }}
+            {{- else if .json_severity -}}{{ .json_severity }}
+            {{- else if .pg_level -}}{{ .pg_level }}
+            {{- else if .nginx_err_level -}}{{ .nginx_err_level }}
+            {{- else if .uvicorn_level -}}{{ .uvicorn_level }}
+            {{- else if .json_status -}}{{ .json_status }}
+            {{- else if .json_status_code -}}{{ .json_status_code }}
+            {{- end -}}
+
+      # Normalize to canonical levels: DEBUG, INFO, WARNING, ERROR, CRITICAL
+      - template:
+          source: level
+          template: >-
+            {{- $v := ToUpper (TrimSpace .raw_level) -}}
+            {{- if or (eq $v "CRITICAL") (eq $v "CRIT") (eq $v "FATAL") (eq $v "PANIC") (eq $v "EMERG") (eq $v "ALERT") -}}CRITICAL
+            {{- else if or (eq $v "ERROR") (eq $v "ERR") (hasPrefix "5" $v) -}}ERROR
+            {{- else if or (eq $v "WARNING") (eq $v "WARN") (hasPrefix "4" $v) -}}WARNING
+            {{- else if hasPrefix "DEBUG" $v -}}DEBUG
+            {{- else -}}INFO
+            {{- end -}}
+
+      # Keep low-cardinality level as an indexed Loki label
+      - labels:
+          level:
+
+      # Store high-cardinality request_id as Loki structured metadata (no index explosion)
+      - structured_metadata:
+          request_id:
