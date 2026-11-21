@@ -1,6 +1,7 @@
 """Application configuration module."""
 
 from functools import lru_cache
+from typing import Literal
 
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -24,6 +25,14 @@ class Settings(BaseSettings):
     debug: bool = Field(
         default=False,
         description="Debug mode enabled flag",
+    )
+    log_level: str = Field(
+        default="INFO",
+        description="Application log level (DEBUG, INFO, WARNING, ERROR, CRITICAL)",
+    )
+    log_format: Literal["auto", "json", "text"] = Field(
+        default="auto",
+        description="Log output format (auto uses text in development/local and json otherwise)",
     )
     session_lifetime_seconds: int = Field(default=28800, gt=0)
     host: str = Field(

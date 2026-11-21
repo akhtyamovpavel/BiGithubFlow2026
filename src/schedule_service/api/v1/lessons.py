@@ -1,5 +1,6 @@
 """REST API router for schedule lessons management with conflict validation."""
 
+import logging
 from datetime import date
 from typing import Annotated, Any
 
@@ -35,6 +36,41 @@ from schedule_service.services.occurrences import lock_schedule
 
 router = APIRouter()
 SessionDep = Annotated[AsyncSession, Depends(get_async_session)]
+logger = logging.getLogger("schedule_service.lessons")
+
+
+def _log_lesson_conflict(
+    operation: str,
+    exc: ScheduleConflictException,
+    *,
+    lesson_id: int | None = None,
+    subject_id: int,
+    teacher_id: int,
+    group_id: int,
+    classroom_id: int,
+    time_slot_id: int,
+) -> None:
+    """Emit a WARNING log entry describing detected schedule conflicts."""
+    conflict_types = sorted({conflict.conflict_type.value for conflict in exc.conflicts})
+    extra: dict[str, Any] = {
+        "event": "lesson_conflict",
+        "operation": operation,
+        "conflict_types": conflict_types,
+        "conflict_count": len(exc.conflicts),
+        "subject_id": subject_id,
+        "teacher_id": teacher_id,
+        "group_id": group_id,
+        "classroom_id": classroom_id,
+        "time_slot_id": time_slot_id,
+    }
+    if lesson_id is not None:
+        extra["lesson_id"] = lesson_id
+    logger.warning(
+        "Schedule conflict during lesson %s: %s",
+        operation,
+        ", ".join(conflict_types),
+        extra=extra,
+    )
 
 
 def _conflict_response(exc: ScheduleConflictException) -> JSONResponse:
@@ -190,6 +226,15 @@ async def create_lesson(
     try:
         await ScheduleValidationService.validate_lesson(session, lesson_in)
     except ScheduleConflictException as exc:
+        _log_lesson_conflict(
+            "create",
+            exc,
+            subject_id=lesson_in.subject_id,
+            teacher_id=lesson_in.teacher_id,
+            group_id=lesson_in.group_id,
+            classroom_id=lesson_in.classroom_id,
+            time_slot_id=lesson_in.time_slot_id,
+        )
         return _conflict_response(exc)
 
     lesson = Lesson(**lesson_in.model_dump())
@@ -199,11 +244,34 @@ async def create_lesson(
         await session.refresh(lesson)
     except IntegrityError as err:
         await session.rollback()
+        logger.warning(
+            "Lesson create failed due to database integrity constraint",
+            extra={
+                "event": "lesson_conflict",
+                "operation": "create",
+                "conflict_types": ["INTEGRITY_ERROR"],
+                "conflict_count": 1,
+            },
+        )
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="Failed to create lesson due to a database integrity constraint",
         ) from err
 
+    logger.info(
+        "Lesson created",
+        extra={
+            "event": "lesson_created",
+            "lesson_id": lesson.id,
+            "subject_id": lesson.subject_id,
+            "teacher_id": lesson.teacher_id,
+            "group_id": lesson.group_id,
+            "classroom_id": lesson.classroom_id,
+            "time_slot_id": lesson.time_slot_id,
+            "lesson_type": lesson.lesson_type.value,
+            "parity": lesson.parity.value,
+        },
+    )
     return await _build_lesson_read(session, lesson)
 
 
@@ -229,7 +297,7 @@ async def update_lesson(
 ) -> LessonRead | JSONResponse:
     """Update an existing scheduled lesson with conflict detection."""
     await lock_schedule(session)
-    await _reject_exception_lesson(session, lesson_id)
+    await _reject_exception_lesson(session, lesson_id, operation="update")
     result = await session.execute(select(Lesson).where(Lesson.id == lesson_id))
     lesson = result.scalar_one_or_none()
     if lesson is None:
@@ -257,6 +325,16 @@ async def update_lesson(
             exclude_lesson_id=lesson_id,
         )
     except ScheduleConflictException as exc:
+        _log_lesson_conflict(
+            "update",
+            exc,
+            lesson_id=lesson_id,
+            subject_id=int(merged_data["subject_id"]),
+            teacher_id=int(merged_data["teacher_id"]),
+            group_id=int(merged_data["group_id"]),
+            classroom_id=int(merged_data["classroom_id"]),
+            time_slot_id=int(merged_data["time_slot_id"]),
+        )
         return _conflict_response(exc)
 
     for field, value in update_data.items():
@@ -267,11 +345,34 @@ async def update_lesson(
         await session.refresh(lesson)
     except IntegrityError as err:
         await session.rollback()
+        logger.warning(
+            "Lesson update failed due to database integrity constraint",
+            extra={
+                "event": "lesson_conflict",
+                "operation": "update",
+                "lesson_id": lesson_id,
+                "conflict_types": ["INTEGRITY_ERROR"],
+                "conflict_count": 1,
+            },
+        )
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="Failed to update lesson due to a database integrity constraint",
         ) from err
 
+    logger.info(
+        "Lesson updated",
+        extra={
+            "event": "lesson_updated",
+            "lesson_id": lesson.id,
+            "updated_fields": sorted(update_data.keys()),
+            "subject_id": lesson.subject_id,
+            "teacher_id": lesson.teacher_id,
+            "group_id": lesson.group_id,
+            "classroom_id": lesson.classroom_id,
+            "time_slot_id": lesson.time_slot_id,
+        },
+    )
     return await _build_lesson_read(session, lesson)
 
 
@@ -291,7 +392,7 @@ async def delete_lesson(
 ) -> None:
     """Delete a scheduled lesson by ID."""
     await lock_schedule(session)
-    await _reject_exception_lesson(session, lesson_id)
+    await _reject_exception_lesson(session, lesson_id, operation="delete")
     result = await session.execute(select(Lesson).where(Lesson.id == lesson_id))
     lesson = result.scalar_one_or_none()
     if lesson is None:
@@ -300,15 +401,41 @@ async def delete_lesson(
             detail=f"Lesson with id {lesson_id} not found",
         )
 
+    lesson_meta = {
+        "event": "lesson_deleted",
+        "lesson_id": lesson.id,
+        "subject_id": lesson.subject_id,
+        "teacher_id": lesson.teacher_id,
+        "group_id": lesson.group_id,
+        "classroom_id": lesson.classroom_id,
+        "time_slot_id": lesson.time_slot_id,
+    }
     await session.delete(lesson)
     await session.flush()
+    logger.info("Lesson deleted", extra=lesson_meta)
 
 
-async def _reject_exception_lesson(session: AsyncSession, lesson_id: int) -> None:
+async def _reject_exception_lesson(
+    session: AsyncSession,
+    lesson_id: int,
+    *,
+    operation: str,
+) -> None:
     """Avoid silently changing or deleting recorded exceptions."""
     query = select(LessonException.id).where(
         (LessonException.lesson_id == lesson_id)
         | (LessonException.replacement_lesson_id == lesson_id)
     )
     if (await session.execute(query)).first() is not None:
+        logger.warning(
+            "Lesson %s rejected due to existing occurrence exception",
+            operation,
+            extra={
+                "event": "lesson_conflict",
+                "operation": operation,
+                "lesson_id": lesson_id,
+                "conflict_types": ["OCCURRENCE_EXCEPTION"],
+                "conflict_count": 1,
+            },
+        )
         raise HTTPException(status_code=409, detail="Lesson has an occurrence exception")
