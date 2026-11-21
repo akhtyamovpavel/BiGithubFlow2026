@@ -1,5 +1,6 @@
 """Cancel or move an individual occurrence of a lesson."""
 
+import logging
 from datetime import date, datetime
 from typing import Literal
 
@@ -16,6 +17,7 @@ from schedule_service.services.conflict_service import ScheduleConflictException
 from schedule_service.services.occurrences import lock_schedule, week_parity
 
 router = APIRouter()
+logger = logging.getLogger("schedule_service.lessons")
 
 
 class ExceptionCreate(BaseModel):
@@ -127,6 +129,20 @@ async def create_exception(
         try:
             await validate_lesson(session, replacement, exclude_lesson_id=excluded)
         except ScheduleConflictException as exc:
+            conflict_types = sorted({conflict.conflict_type.value for conflict in exc.conflicts})
+            logger.warning(
+                "Schedule conflict during lesson occurrence move: %s",
+                ", ".join(conflict_types),
+                extra={
+                    "event": "lesson_conflict",
+                    "operation": "move_occurrence",
+                    "lesson_id": lesson.id,
+                    "conflict_types": conflict_types,
+                    "conflict_count": len(exc.conflicts),
+                    "classroom_id": data.classroom_id,
+                    "time_slot_id": data.time_slot_id,
+                },
+            )
             raise HTTPException(status_code=409, detail=exc.to_dict()) from exc
         session.add(replacement)
         await session.flush()
@@ -143,4 +159,15 @@ async def create_exception(
     session.add(exception)
     await session.flush()
     await session.refresh(exception)
+    logger.info(
+        "Lesson occurrence exception created",
+        extra={
+            "event": "lesson_exception_created",
+            "lesson_id": lesson.id,
+            "exception_id": exception.id,
+            "action": data.action,
+            "occurrence_date": data.occurrence_date.isoformat(),
+            "replacement_lesson_id": replacement_id,
+        },
+    )
     return exception

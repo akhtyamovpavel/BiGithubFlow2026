@@ -11,6 +11,8 @@ from fastapi.responses import JSONResponse
 from schedule_service.api.v1.router import api_v1_router
 from schedule_service.core.config import Settings, get_settings
 from schedule_service.core.database import check_database_health
+from schedule_service.core.logging import configure_logging
+from schedule_service.core.middleware import RequestContextMiddleware
 from schedule_service.schemas.health import HealthResponse, ReadinessResponse
 
 
@@ -18,13 +20,15 @@ from schedule_service.schemas.health import HealthResponse, ReadinessResponse
 async def lifespan(_app: FastAPI) -> AsyncGenerator[None, None]:
     """Lifespan context manager to validate configuration on startup."""
     # Instantiating settings validates all environment variables at startup
-    _ = get_settings()
+    settings = get_settings()
+    configure_logging(settings)
     yield
 
 
 def create_app() -> FastAPI:
     """Create and configure the FastAPI application."""
     settings: Settings = get_settings()
+    configure_logging(settings)
     app = FastAPI(
         title=settings.app_name,
         version=settings.version,
@@ -33,6 +37,7 @@ def create_app() -> FastAPI:
         lifespan=lifespan,
     )
 
+    app.add_middleware(RequestContextMiddleware)
     app.include_router(api_v1_router)
 
     @app.exception_handler(RequestValidationError)
