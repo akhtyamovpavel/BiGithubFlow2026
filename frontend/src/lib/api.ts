@@ -6,7 +6,10 @@ import type {
   Group,
   GroupFilters,
   GroupInput,
+  GroupScheduleResponse,
   Lesson,
+  LessonExceptionCreateInput,
+  LessonExceptionRead,
   LessonInput,
   LoginInput,
   Readiness,
@@ -125,6 +128,23 @@ async function responseError(
   }
   if (response.status === 409 && detail === "Username already exists") {
     messages[409] = "Пользователь с таким логином уже существует."
+  }
+  if (response.status === 409 && detail === "Occurrence already changed") {
+    messages[409] = "Это вхождение занятия на выбранную дату уже было изменено."
+  }
+  if (response.status === 409 && detail === "Cannot change a replacement lesson") {
+    messages[409] = "Нельзя изменить или повторно перенести занятие, созданное переносом."
+  }
+  if (response.status === 409 && detail === "Lesson has an occurrence exception") {
+    messages[409] =
+      "У этой серии уже есть исключения по датам. Изменяй отдельные вхождения на выбранную дату."
+  }
+  if (response.status === 422 && detail === "No lesson occurrence on this date") {
+    messages[422] =
+      "В выбранную дату это занятие не проводится. Проверь день недели и чётность недели."
+  }
+  if (response.status === 422 && detail === "Target date does not match slot weekday") {
+    messages[422] = "Новая дата не совпадает с днём недели выбранного временного слота."
   }
   if (response.status === 409 && Array.isArray(conflicts) && conflicts.length > 0) {
     const reasons = Array.from(
@@ -299,6 +319,27 @@ export const classroomsApi = createResource<Classroom, ClassroomInput, Classroom
 export const subjectsApi = createResource<Subject, SubjectInput, SubjectFilters>("subjects")
 export const timeSlotsApi = createResource<TimeSlot, never, TimeSlotFilters>("time-slots")
 export const lessonsApi = createResource<Lesson, LessonInput, Record<string, unknown>>("lessons")
+
+export const lessonExceptionsApi = {
+  create: (lessonId: number, input: LessonExceptionCreateInput) =>
+    request<LessonExceptionRead>(`${API_BASE_URL}/lessons/${lessonId}/exceptions`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(input),
+    }),
+}
+
+export const getGroupSchedule = (
+  groupId: number,
+  filters: { date?: string; parity?: string } = {},
+  signal?: AbortSignal,
+) => {
+  const qs = queryString(filters)
+  const suffix = qs ? `?${qs}` : ""
+  return request<GroupScheduleResponse>(`${API_BASE_URL}/schedule/group/${groupId}${suffix}`, {
+    signal,
+  })
+}
 
 export const getAvailableClassrooms = async (
   filters: AvailableClassroomFilters,
