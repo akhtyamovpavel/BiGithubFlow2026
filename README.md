@@ -32,3 +32,13 @@ docker compose up --build
 ## Доступ к API
 
 Порядок создания первого администратора, роли и контракт сессий описаны в [документации авторизации](docs/АВТОРИЗАЦИЯ.md).
+
+## Сбор логов и поиск по `request_id`
+
+Стек централизованного логирования (Promtail → Loki → Grafana) запускается поверх основного Compose-файла:
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.observability.yml up -d --build
+```
+
+Подробная инструкция по запуску, ограничению доступа, поиску логов по `service`, `level` и `request_id`, а также согласованию provisioning Grafana описана в [документации по логированию](docs/LOGGING.md).
