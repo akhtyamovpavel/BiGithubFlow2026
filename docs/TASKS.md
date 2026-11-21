@@ -40,3 +40,17 @@
 | 18 | [#18](https://github.com/akhtyamovpavel/BiGithubFlow2026/issues/18) | `api`, `mvp` | [API] Поиск свободных аудиторий на заданный слот | Поиск доступных аудиторий заданной вместимости для переноса занятий. |
 | 19 | [#19](https://github.com/akhtyamovpavel/BiGithubFlow2026/issues/19) | `export`, `mvp` | [EXPORT] Экспорт расписания в формат iCalendar (.ics) и CSV | Выгрузка в календарные форматы (RFC 5545) для Google/Apple Calendar. |
 | 20 | [#20](https://github.com/akhtyamovpavel/BiGithubFlow2026/issues/20) | `infra`, `mvp` | [DATA] Скрипт генерации демонстрационных данных (Seed fixtures) | Идемпотентный скрипт создания тестовых групп, преподавателей, аудиторий и пар. |
+| 21 | [#37](https://github.com/akhtyamovpavel/BiGithubFlow2026/issues/37) | `frontend`, `mvp` | [FRONTEND] Разработка SPA веб-интерфейса (React + TypeScript + Vite + shadcn/ui) | Веб-приложение с сеткой расписания, управлением справочниками и экспортом. |
+
+---
+
+## Фаза 2: Наблюдаемость (Monitoring & Logging) и E2E-тестирование (Playwright)
+
+| № | Issue | Модуль / Метка | Название задачи | Описание и результат |
+|---|---|---|---|---|
+| 22 | [#47](https://github.com/akhtyamovpavel/BiGithubFlow2026/issues/47) | `logging`, `observability`, `infra` | [LOGGING] Структурированное JSON-логирование FastAPI и Nginx со сквозным X-Request-ID | JSON-логи `structlog` в FastAPI и Nginx, сквозной `X-Request-ID`, доменное логирование `409 Conflict`. |
+| 23 | [#48](https://github.com/akhtyamovpavel/BiGithubFlow2026/issues/48) | `logging`, `observability`, `infra` | [LOGGING] Централизованный сбор и просмотр логов полного стека (Grafana Loki + Promtail) | Сбор логов `app`, `frontend`, `postgres` в Loki, автопровижининг datasource и дашборда логов в Grafana. |
+| 24 | [#49](https://github.com/akhtyamovpavel/BiGithubFlow2026/issues/49) | `monitoring`, `observability`, `api` | [MONITORING] Экспорт Prometheus-метрик FastAPI (/metrics), бизнес-метрик коллизий и экспортеров БД/Nginx | Эндпоинт `/metrics`, RED-метрики, бизнес-счётчики коллизий и экспортов, экспортеры Postgres и Nginx. |
+| 25 | [#50](https://github.com/akhtyamovpavel/BiGithubFlow2026/issues/50) | `monitoring`, `observability`, `infra` | [MONITORING] Развёртывание Prometheus + Grafana с автопровижинингом дашбордов полного стека | Конфигурация Prometheus, правила алертинга и готовый дашборд полного стека в Grafana. |
+| 26 | [#51](https://github.com/akhtyamovpavel/BiGithubFlow2026/issues/51) | `e2e`, `frontend`, `api` | [E2E] Настройка Playwright и сквозные E2E-тесты пользовательских сценариев SPA | Сквозные браузерные тесты на Playwright: расписание, CRUD справочников, `409 Conflict`, скачивание `.ics`/`.csv`. |
+| 27 | [#52](https://github.com/akhtyamovpavel/BiGithubFlow2026/issues/52) | `e2e`, `infra` | [CI/E2E] Интеграция Playwright E2E-тестов полного стека в GitHub Actions CI | Поднятие полного стека с сид-данными в GitHub Actions, прогон Playwright в Chromium и публикация отчёта. |
