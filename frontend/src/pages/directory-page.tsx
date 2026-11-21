@@ -12,6 +12,7 @@ import {
 } from "lucide-react"
 import { toast } from "sonner"
 import { classroomsApi, errorMessage, groupsApi, subjectsApi, teachersApi } from "@/lib/api"
+import { useAuth } from "@/lib/auth"
 import type {
   ClassroomFilters,
   DirectoryRecord,
@@ -71,6 +72,7 @@ function recordName(record: DirectoryRecord): string {
 }
 
 export function DirectoryPage({ resource }: { resource: Resource }) {
+  const { canEdit } = useAuth()
   const isGroup = resource === "groups"
   const isTeacher = resource === "teachers"
   const isClassroom = resource === "classrooms"
@@ -227,10 +229,12 @@ export function DirectoryPage({ resource }: { resource: Resource }) {
           <h1 className="text-2xl font-semibold tracking-tight sm:text-3xl">{title}</h1>
           <p className="max-w-xl text-sm leading-relaxed text-muted-foreground">{description}</p>
         </div>
-        <Button onClick={() => setEditing(null)}>
-          <Plus aria-hidden="true" />
-          {addLabel}
-        </Button>
+        {canEdit && (
+          <Button onClick={() => setEditing(null)}>
+            <Plus aria-hidden="true" />
+            {addLabel}
+          </Button>
+        )}
       </div>
 
       <section className="overflow-hidden rounded-xl border bg-card" aria-label={title}>
@@ -310,7 +314,7 @@ export function DirectoryPage({ resource }: { resource: Resource }) {
                   <TableHead>{isSubject ? "Код дисциплины" : filterLabel}</TableHead>
                   <TableHead>{thirdColLabel}</TableHead>
                   <TableHead>Статус</TableHead>
-                  <TableHead className="pr-5 text-right">Действия</TableHead>
+                  {canEdit && <TableHead className="pr-5 text-right">Действия</TableHead>}
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -366,28 +370,30 @@ export function DirectoryPage({ resource }: { resource: Resource }) {
                           {!isActiveRecord && "Неактивна"}
                         </Badge>
                       </TableCell>
-                      <TableCell className="pr-5 text-right">
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          aria-label={`Редактировать ${recordName(record)}`}
-                          onClick={() => setEditing(record)}
-                        >
-                          <Pencil aria-hidden="true" />
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="text-destructive hover:text-destructive"
-                          aria-label={`Удалить ${recordName(record)}`}
-                          onClick={() => {
-                            setDeleting(record)
-                            setDeleteError("")
-                          }}
-                        >
-                          <Trash2 aria-hidden="true" />
-                        </Button>
-                      </TableCell>
+                      {canEdit && (
+                        <TableCell className="pr-5 text-right">
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            aria-label={`Редактировать ${recordName(record)}`}
+                            onClick={() => setEditing(record)}
+                          >
+                            <Pencil aria-hidden="true" />
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="text-destructive hover:text-destructive"
+                            aria-label={`Удалить ${recordName(record)}`}
+                            onClick={() => {
+                              setDeleting(record)
+                              setDeleteError("")
+                            }}
+                          >
+                            <Trash2 aria-hidden="true" />
+                          </Button>
+                        </TableCell>
+                      )}
                     </TableRow>
                   )
                 })}

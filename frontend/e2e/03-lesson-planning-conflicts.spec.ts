@@ -1,9 +1,20 @@
 import { expect, test, type APIRequestContext } from "@playwright/test"
+import {
+  apiLogin,
+  authHeaders,
+  E2E_ADMIN_PASSWORD,
+  E2E_ADMIN_USERNAME,
+  E2E_DISPATCHER_PASSWORD,
+  E2E_DISPATCHER_USERNAME,
+  ensureUser,
+  loginViaUi,
+} from "./helpers/auth"
 
 const TARGET_SLOT_LABEL = "Понедельник · 5 пара (15:30–16:55)"
 
-async function cleanupMondaySlotFiveLessons(request: APIRequestContext) {
-  const response = await request.get("/api/v1/lessons/?limit=500")
+async function cleanupMondaySlotFiveLessons(request: APIRequestContext, token: string) {
+  const headers = authHeaders(token)
+  const response = await request.get("/api/v1/lessons/?limit=500", { headers })
   if (!response.ok()) {
     return
   }
@@ -13,24 +24,31 @@ async function cleanupMondaySlotFiveLessons(request: APIRequestContext) {
   }>
   for (const lesson of lessons) {
     if (lesson.time_slot?.day_of_week === 1 && lesson.time_slot.slot_number === 5) {
-      await request.delete(`/api/v1/lessons/${lesson.id}`)
+      await request.delete(`/api/v1/lessons/${lesson.id}`, { headers })
     }
   }
 }
 
 test.describe("Сценарий 3 — Планирование занятия и защита от коллизий (409 Conflict)", () => {
   test.beforeEach(async ({ request }) => {
-    await cleanupMondaySlotFiveLessons(request)
+    const adminToken = await apiLogin(request, E2E_ADMIN_USERNAME, E2E_ADMIN_PASSWORD)
+    await ensureUser(request, adminToken, {
+      username: E2E_DISPATCHER_USERNAME,
+      password: E2E_DISPATCHER_PASSWORD,
+      role: "dispatcher",
+    })
+    await cleanupMondaySlotFiveLessons(request, adminToken)
   })
 
   test.afterEach(async ({ request }) => {
-    await cleanupMondaySlotFiveLessons(request)
+    const adminToken = await apiLogin(request, E2E_ADMIN_USERNAME, E2E_ADMIN_PASSWORD)
+    await cleanupMondaySlotFiveLessons(request, adminToken)
   })
 
-  test("успешное добавление занятия в свободный слот и отображение ошибки 409 при накладке", async ({
+  test("диспетчер добавляет занятие в свободный слот и видит ошибку 409 при накладке", async ({
     page,
   }) => {
-    await page.goto("/schedule")
+    await loginViaUi(page, E2E_DISPATCHER_USERNAME, E2E_DISPATCHER_PASSWORD, "/schedule")
     await expect(
       page.getByRole("heading", { name: "Сетка расписания", exact: true }),
     ).toBeVisible()
