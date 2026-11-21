@@ -1,0 +1,104 @@
+{
+  "uid": "schedule-service-metrics",
+  "title": "ScheduleService — Service Health & Metrics",
+  "tags": ["schedule-service", "monitoring", "prometheus"],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "15s",
+  "time": { "from": "now-1h", "to": "now" },
+  "panels": [
+    {
+      "id": 1, "type": "stat", "title": "FastAPI Up",
+      "gridPos": { "x": 0, "y": 0, "w": 6, "h": 4 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [{ "refId": "A", "expr": "up{job=\"schedule-app\"}" }],
+      "fieldConfig": { "defaults": { "mappings": [{ "type": "value", "options": { "0": { "text": "DOWN", "color": "red" }, "1": { "text": "UP", "color": "green" } } }] } }
+    },
+    {
+      "id": 2, "type": "stat", "title": "PostgreSQL Up",
+      "gridPos": { "x": 6, "y": 0, "w": 6, "h": 4 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [{ "refId": "A", "expr": "pg_up" }],
+      "fieldConfig": { "defaults": { "mappings": [{ "type": "value", "options": { "0": { "text": "DOWN", "color": "red" }, "1": { "text": "UP", "color": "green" } } }] } }
+    },
+    {
+      "id": 3, "type": "stat", "title": "Nginx Up",
+      "gridPos": { "x": 12, "y": 0, "w": 6, "h": 4 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [{ "refId": "A", "expr": "nginx_up" }],
+      "fieldConfig": { "defaults": { "mappings": [{ "type": "value", "options": { "0": { "text": "DOWN", "color": "red" }, "1": { "text": "UP", "color": "green" } } }] } }
+    },
+    {
+      "id": 4, "type": "stat", "title": "Active Alerts",
+      "gridPos": { "x": 18, "y": 0, "w": 6, "h": 4 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [{ "refId": "A", "expr": "count(ALERTS{alertstate=~\"pending|firing\"}) or vector(0)" }]
+    },
+    {
+      "id": 5, "type": "timeseries", "title": "HTTP RPS (by status class)",
+      "gridPos": { "x": 0, "y": 4, "w": 12, "h": 7 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        { "refId": "A", "legendFormat": "total", "expr": "sum(rate(http_requests_total[5m]))" },
+        { "refId": "B", "legendFormat": "{{status_class}}", "expr": "sum by (status_class) (rate(http_requests_total[5m]))" }
+      ],
+      "fieldConfig": { "defaults": { "unit": "reqps" } }
+    },
+    {
+      "id": 6, "type": "timeseries", "title": "HTTP 5xx Error Rate (%)",
+      "gridPos": { "x": 12, "y": 4, "w": 12, "h": 7 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        { "refId": "A", "legendFormat": "5xx ratio", "expr": "sum(rate(http_requests_total{status_class=\"5xx\"}[5m])) / clamp_min(sum(rate(http_requests_total[5m])), 1e-9)" },
+        { "refId": "B", "legendFormat": "4xx ratio", "expr": "sum(rate(http_requests_total{status_class=\"4xx\"}[5m])) / clamp_min(sum(rate(http_requests_total[5m])), 1e-9)" }
+      ],
+      "fieldConfig": { "defaults": { "unit": "percentunit" } }
+    },
+    {
+      "id": 7, "type": "timeseries", "title": "HTTP Latency p50 / p95 / p99",
+      "gridPos": { "x": 0, "y": 11, "w": 12, "h": 7 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        { "refId": "A", "legendFormat": "p50", "expr": "histogram_quantile(0.50, sum by (le) (rate(http_request_duration_seconds_bucket[5m])))" },
+        { "refId": "B", "legendFormat": "p95", "expr": "histogram_quantile(0.95, sum by (le) (rate(http_request_duration_seconds_bucket[5m])))" },
+        { "refId": "C", "legendFormat": "p99", "expr": "histogram_quantile(0.99, sum by (le) (rate(http_request_duration_seconds_bucket[5m])))" }
+      ],
+      "fieldConfig": { "defaults": { "unit": "s" } }
+    },
+    {
+      "id": 8, "type": "timeseries", "title": "Business Metrics (1h increase)",
+      "gridPos": { "x": 12, "y": 11, "w": 12, "h": 7 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        { "refId": "A", "legendFormat": "lessons {{lesson_type}}", "expr": "sum by (lesson_type) (increase(schedule_lessons_created_total[1h]))" },
+        { "refId": "B", "legendFormat": "conflicts {{conflict_type}}", "expr": "sum by (conflict_type) (increase(schedule_conflicts_detected_total[1h]))" },
+        { "refId": "C", "legendFormat": "exports {{format}}/{{target}}", "expr": "sum by (format, target) (increase(schedule_exports_total[1h]))" }
+      ]
+    },
+    {
+      "id": 9, "type": "stat", "title": "Database Entities Count",
+      "gridPos": { "x": 0, "y": 18, "w": 8, "h": 6 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [{ "refId": "A", "legendFormat": "{{entity}}", "expr": "schedule_db_entities_count" }]
+    },
+    {
+      "id": 10, "type": "timeseries", "title": "PostgreSQL Connections & Size",
+      "gridPos": { "x": 8, "y": 18, "w": 8, "h": 6 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        { "refId": "A", "legendFormat": "connections {{state}}", "expr": "sum by (state) (pg_stat_activity_count)" },
+        { "refId": "B", "legendFormat": "db_size_mb {{datname}}", "expr": "pg_database_size_bytes{datname=~\"schedule.*\"} / 1048576" }
+      ]
+    },
+    {
+      "id": 11, "type": "timeseries", "title": "Nginx Connections & Request Rate",
+      "gridPos": { "x": 16, "y": 18, "w": 8, "h": 6 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        { "refId": "A", "legendFormat": "active_connections", "expr": "nginx_connections_active" },
+        { "refId": "B", "legendFormat": "nginx_rps", "expr": "rate(nginx_http_requests_total[5m])" }
+      ]
+    }
+  ]
+}

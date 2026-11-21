@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from typing import Any
 
@@ -73,3 +74,35 @@ def test_grafana_prometheus_datasource_provisioned() -> None:
     assert ds["type"] == "prometheus"
     assert ds["url"] == "http://prometheus:9090"
     assert ds["isDefault"] is True
+
+
+def test_grafana_metrics_dashboard_and_runbook_cover_all_signals() -> None:
+    dashboard_path = OBS / "grafana" / "dashboards" / "metrics.json"
+    dashboard = json.loads(dashboard_path.read_text(encoding="utf-8"))
+    assert dashboard["uid"] == "schedule-service-metrics"
+    assert len(dashboard["panels"]) >= 10
+
+    exprs = " ".join(
+        t["expr"] for p in dashboard["panels"] for t in p.get("targets", []) if "expr" in t
+    )
+    for required in (
+        'up{job="schedule-app"}',
+        "pg_up",
+        "nginx_up",
+        "http_requests_total",
+        'status_class="5xx"',
+        "histogram_quantile(0.50",
+        "histogram_quantile(0.95",
+        "histogram_quantile(0.99",
+        "schedule_lessons_created_total",
+        "schedule_conflicts_detected_total",
+        "schedule_exports_total",
+        "schedule_db_entities_count",
+        "pg_stat_activity_count",
+        "nginx_connections_active",
+    ):
+        assert required in exprs, f"Missing PromQL expression fragment: {required}"
+
+    runbook = (ROOT / "docs" / "MONITORING.md").read_text(encoding="utf-8")
+    for section in ("api/v1/targets", "api/v1/alerts", "NginxDown", "HighHttp5xxErrorRate"):
+        assert section in runbook
