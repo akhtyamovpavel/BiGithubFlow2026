@@ -9,10 +9,11 @@ import {
   Search,
   UserRound,
 } from "lucide-react"
+import { toast } from "sonner"
 import {
-  API_BASE_URL,
   ApiError,
   classroomsApi,
+  downloadExportFile,
   errorMessage,
   getAvailableClassrooms,
   getLessons,
@@ -21,6 +22,7 @@ import {
   teachersApi,
   timeSlotsApi,
 } from "@/lib/api"
+import { useAuth } from "@/lib/auth"
 import { DEMO_TIMES, demoLessons } from "@/lib/demo-schedule"
 import type {
   Classroom,
@@ -81,6 +83,7 @@ function optionsFor(lessons: Lesson[], resource: "group" | "teacher" | "classroo
 }
 
 export function SchedulePage() {
+  const { canEdit } = useAuth()
   const searchFormId = useId()
   const [lessons, setLessons] = useState<Lesson[]>([])
   const [groups, setGroups] = useState<Group[]>([])
@@ -97,6 +100,7 @@ export function SchedulePage() {
   const [teacher, setTeacher] = useState("all")
   const [classroom, setClassroom] = useState("all")
   const [addingLesson, setAddingLesson] = useState(false)
+  const [exporting, setExporting] = useState<"ics" | "csv" | null>(null)
 
   const [searchSlotId, setSearchSlotId] = useState("")
   const [minCapacity, setMinCapacity] = useState("")
@@ -213,8 +217,26 @@ export function SchedulePage() {
       : teacher !== "all"
         ? `teacher/${teacher}`
         : `group/${defaultGroupId}`
-  const icsExportUrl = `${API_BASE_URL}/schedule/${exportScope}/export/ics`
-  const csvExportUrl = `${API_BASE_URL}/schedule/${exportScope}/export/csv`
+  const exportFilenamePrefix =
+    group !== "all"
+      ? `schedule_group_${group}`
+      : teacher !== "all"
+        ? `schedule_teacher_${teacher}`
+        : `schedule_group_${defaultGroupId}`
+
+  async function handleExport(format: "ics" | "csv") {
+    setExporting(format)
+    try {
+      await downloadExportFile(
+        `/schedule/${exportScope}/export/${format}`,
+        `${exportFilenamePrefix}.${format}`,
+      )
+    } catch (failure) {
+      toast.error(errorMessage(failure))
+    } finally {
+      setExporting(null)
+    }
+  }
 
   return (
     <div className="space-y-6">
@@ -227,17 +249,23 @@ export function SchedulePage() {
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          <Button variant="outline" asChild>
-            <a href={icsExportUrl} download>
-              <Download aria-hidden="true" />
-              Скачать .ics
-            </a>
+          <Button
+            type="button"
+            variant="outline"
+            disabled={exporting !== null}
+            onClick={() => void handleExport("ics")}
+          >
+            <Download aria-hidden="true" />
+            Скачать .ics
           </Button>
-          <Button variant="outline" asChild>
-            <a href={csvExportUrl} download>
-              <Download aria-hidden="true" />
-              Скачать .csv
-            </a>
+          <Button
+            type="button"
+            variant="outline"
+            disabled={exporting !== null}
+            onClick={() => void handleExport("csv")}
+          >
+            <Download aria-hidden="true" />
+            Скачать .csv
           </Button>
           <Button
             variant="outline"
@@ -247,10 +275,12 @@ export function SchedulePage() {
             <RefreshCw aria-hidden="true" />
             Обновить
           </Button>
-          <Button onClick={() => setAddingLesson(true)}>
-            <Plus aria-hidden="true" />
-            Добавить занятие
-          </Button>
+          {canEdit && (
+            <Button onClick={() => setAddingLesson(true)}>
+              <Plus aria-hidden="true" />
+              Добавить занятие
+            </Button>
+          )}
         </div>
       </div>
 
@@ -500,7 +530,7 @@ export function SchedulePage() {
         )}
       </section>
 
-      {addingLesson && (
+      {canEdit && addingLesson && (
         <LessonDialog
           groups={groups}
           teachers={teachers}

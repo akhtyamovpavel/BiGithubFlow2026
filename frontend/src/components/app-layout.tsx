@@ -5,12 +5,17 @@ import {
   CalendarDays,
   Check,
   GraduationCap,
+  LogOut,
   Menu,
+  ShieldCheck,
   Unplug,
+  UserRound,
   Users,
 } from "lucide-react"
-import { NavLink, Outlet, useLocation } from "react-router-dom"
+import { NavLink, Outlet, useLocation, useNavigate } from "react-router-dom"
+import { toast } from "sonner"
 import { getReadiness } from "@/lib/api"
+import { ROLE_LABELS, useAuth } from "@/lib/auth"
 import { cn } from "@/lib/utils"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -23,13 +28,15 @@ import {
   SheetTrigger,
 } from "@/components/ui/sheet"
 
-const navigation = [
+const workspaceNavigation = [
   { to: "/schedule", label: "Сетка расписания", icon: CalendarDays },
   { to: "/groups", label: "Академические группы", icon: Users },
   { to: "/teachers", label: "Преподаватели", icon: GraduationCap },
   { to: "/classrooms", label: "Аудитории", icon: Building2 },
   { to: "/subjects", label: "Предметы", icon: BookOpen },
 ]
+
+const adminNavigation = [{ to: "/users", label: "Пользователи", icon: ShieldCheck }]
 
 function Brand() {
   return (
@@ -45,25 +52,54 @@ function Brand() {
   )
 }
 
-function Navigation({ close }: { close?: () => void }) {
+function Navigation({ isAdmin, close }: { isAdmin: boolean; close?: () => void }) {
   return (
-    <nav aria-label="Основная навигация" className="space-y-1">
-      {navigation.map((item) => (
-        <NavLink
-          key={item.to}
-          to={item.to}
-          onClick={close}
-          className={({ isActive }) =>
-            cn(
-              "flex items-center gap-3 rounded-lg px-3 py-3 text-sm font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground",
-              isActive && "bg-primary/8 text-primary hover:bg-primary/10 hover:text-primary",
-            )
-          }
-        >
-          <item.icon className="size-4 shrink-0" aria-hidden="true" />
-          {item.label}
-        </NavLink>
-      ))}
+    <nav aria-label="Основная навигация" className="space-y-5">
+      <div>
+        <p className="mb-2 px-3 text-xs font-medium text-muted-foreground">Рабочее пространство</p>
+        <div className="space-y-1">
+          {workspaceNavigation.map((item) => (
+            <NavLink
+              key={item.to}
+              to={item.to}
+              onClick={close}
+              className={({ isActive }) =>
+                cn(
+                  "flex items-center gap-3 rounded-lg px-3 py-3 text-sm font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground",
+                  isActive && "bg-primary/8 text-primary hover:bg-primary/10 hover:text-primary",
+                )
+              }
+            >
+              <item.icon className="size-4 shrink-0" aria-hidden="true" />
+              {item.label}
+            </NavLink>
+          ))}
+        </div>
+      </div>
+
+      {isAdmin && (
+        <div>
+          <p className="mb-2 px-3 text-xs font-medium text-muted-foreground">Администрирование</p>
+          <div className="space-y-1">
+            {adminNavigation.map((item) => (
+              <NavLink
+                key={item.to}
+                to={item.to}
+                onClick={close}
+                className={({ isActive }) =>
+                  cn(
+                    "flex items-center gap-3 rounded-lg px-3 py-3 text-sm font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground",
+                    isActive && "bg-primary/8 text-primary hover:bg-primary/10 hover:text-primary",
+                  )
+                }
+              >
+                <item.icon className="size-4 shrink-0" aria-hidden="true" />
+                {item.label}
+              </NavLink>
+            ))}
+          </div>
+        </div>
+      )}
     </nav>
   )
 }
@@ -125,8 +161,25 @@ function BackendStatus() {
 
 export function AppLayout() {
   const [menuOpen, setMenuOpen] = useState(false)
+  const [loggingOut, setLoggingOut] = useState(false)
   const location = useLocation()
-  const current = navigation.find((item) => location.pathname === item.to)
+  const navigate = useNavigate()
+  const { user, isAdmin, logout } = useAuth()
+
+  const allNavigation = [...workspaceNavigation, ...adminNavigation]
+  const current = allNavigation.find((item) => location.pathname === item.to)
+
+  async function handleLogout() {
+    setLoggingOut(true)
+    try {
+      await logout()
+      toast.success("Вы вышли из системы")
+      navigate("/login", { replace: true })
+    } finally {
+      setLoggingOut(false)
+    }
+  }
+
   return (
     <div className="min-h-dvh bg-background text-foreground lg:grid lg:grid-cols-[256px_minmax(0,1fr)]">
       <a
@@ -139,8 +192,7 @@ export function AppLayout() {
         <div className="mb-10 px-3">
           <Brand />
         </div>
-        <p className="mb-3 px-3 text-xs font-medium text-muted-foreground">Рабочее пространство</p>
-        <Navigation />
+        <Navigation isAdmin={isAdmin} />
         <div className="mt-auto border-t px-3 pt-5 text-xs leading-relaxed text-muted-foreground">
           Планируем учебную неделю и ведём справочники в одном месте.
         </div>
@@ -166,7 +218,7 @@ export function AppLayout() {
                   </SheetTitle>
                   <SheetDescription>Разделы учебного отдела</SheetDescription>
                 </SheetHeader>
-                <Navigation close={() => setMenuOpen(false)} />
+                <Navigation isAdmin={isAdmin} close={() => setMenuOpen(false)} />
               </SheetContent>
             </Sheet>
             <span className="hidden text-sm text-muted-foreground sm:inline">Учебный отдел</span>
@@ -175,7 +227,27 @@ export function AppLayout() {
             </span>
             <span className="text-sm font-medium">{current?.label || "Страница не найдена"}</span>
           </div>
-          <BackendStatus />
+          <div className="flex flex-wrap items-center gap-3">
+            <BackendStatus />
+            {user && (
+              <div className="flex items-center gap-2 rounded-lg border bg-muted/30 px-3 py-1.5 text-sm">
+                <UserRound className="size-4 text-muted-foreground" aria-hidden="true" />
+                <span className="font-medium">{user.username}</span>
+                <Badge variant="secondary" className="text-xs font-normal">
+                  {ROLE_LABELS[user.role]}
+                </Badge>
+              </div>
+            )}
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={loggingOut}
+              onClick={() => void handleLogout()}
+            >
+              <LogOut className="size-4" aria-hidden="true" />
+              Выйти
+            </Button>
+          </div>
         </header>
         <main id="main" className="mx-auto max-w-[1720px] p-4 py-7 sm:p-8 lg:p-10" tabIndex={-1}>
           <Outlet />

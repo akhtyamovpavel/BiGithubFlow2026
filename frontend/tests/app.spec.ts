@@ -23,6 +23,9 @@ const initialTeacher: Teacher = {
 }
 
 async function mockApi(page: Page, groupCount = 1) {
+  await page.addInitScript(() => {
+    window.localStorage.setItem("schedule_service_access_token", "mock-e2e-token")
+  })
   let groups = Array.from({ length: groupCount }, (_, index) => ({
     ...initialGroup,
     id: index + 1,
@@ -37,6 +40,12 @@ async function mockApi(page: Page, groupCount = 1) {
   await page.route("**/api/v1/**", async (route) => {
     const request = route.request()
     const url = new URL(request.url())
+    if (url.pathname === "/api/v1/auth/me") {
+      await route.fulfill({
+        json: { id: 1, username: "admin", role: "admin", is_active: true },
+      })
+      return
+    }
     const match = url.pathname.match(/^\/api\/v1\/(groups|teachers)\/(\d+)?$/)
     if (!match) {
       await route.fulfill({ status: 404, json: { detail: "Not Found" } })

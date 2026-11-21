@@ -1,4 +1,14 @@
 import { expect, test, type APIRequestContext } from "@playwright/test"
+import {
+  apiLogin,
+  authHeaders,
+  E2E_ADMIN_PASSWORD,
+  E2E_ADMIN_USERNAME,
+  E2E_DISPATCHER_PASSWORD,
+  E2E_DISPATCHER_USERNAME,
+  ensureUser,
+  loginViaUi,
+} from "./helpers/auth"
 
 const TEST_GROUP_NAME = "Б05-909"
 const TEST_TEACHER_NAME = "Петров Алексей Владимирович"
@@ -8,24 +18,25 @@ const TEST_CLASSROOM_NUMBER = "909"
 const TEST_SUBJECT_NAME = "Автоматизированное E2E-тестирование"
 const TEST_SUBJECT_CODE = "QA-909"
 
-async function cleanupTestEntities(request: APIRequestContext) {
-  const groupsRes = await request.get("/api/v1/groups/?limit=200")
+async function cleanupTestEntities(request: APIRequestContext, token: string) {
+  const headers = authHeaders(token)
+  const groupsRes = await request.get("/api/v1/groups/?limit=200", { headers })
   if (groupsRes.ok()) {
     const groups = (await groupsRes.json()) as Array<{ id: number; name: string }>
     for (const group of groups.filter((item) => item.name === TEST_GROUP_NAME)) {
-      await request.delete(`/api/v1/groups/${group.id}`)
+      await request.delete(`/api/v1/groups/${group.id}`, { headers })
     }
   }
 
-  const teachersRes = await request.get("/api/v1/teachers/?limit=200")
+  const teachersRes = await request.get("/api/v1/teachers/?limit=200", { headers })
   if (teachersRes.ok()) {
     const teachers = (await teachersRes.json()) as Array<{ id: number; email: string }>
     for (const teacher of teachers.filter((item) => item.email === TEST_TEACHER_EMAIL)) {
-      await request.delete(`/api/v1/teachers/${teacher.id}`)
+      await request.delete(`/api/v1/teachers/${teacher.id}`, { headers })
     }
   }
 
-  const classroomsRes = await request.get("/api/v1/classrooms/?limit=200")
+  const classroomsRes = await request.get("/api/v1/classrooms/?limit=200", { headers })
   if (classroomsRes.ok()) {
     const classrooms = (await classroomsRes.json()) as Array<{
       id: number
@@ -36,11 +47,11 @@ async function cleanupTestEntities(request: APIRequestContext) {
       (item) =>
         item.building === TEST_CLASSROOM_BUILDING && item.room_number === TEST_CLASSROOM_NUMBER,
     )) {
-      await request.delete(`/api/v1/classrooms/${room.id}`)
+      await request.delete(`/api/v1/classrooms/${room.id}`, { headers })
     }
   }
 
-  const subjectsRes = await request.get("/api/v1/subjects/?limit=200")
+  const subjectsRes = await request.get("/api/v1/subjects/?limit=200", { headers })
   if (subjectsRes.ok()) {
     const subjects = (await subjectsRes.json()) as Array<{
       id: number
@@ -50,25 +61,33 @@ async function cleanupTestEntities(request: APIRequestContext) {
     for (const subject of subjects.filter(
       (item) => item.name === TEST_SUBJECT_NAME || item.code === TEST_SUBJECT_CODE,
     )) {
-      await request.delete(`/api/v1/subjects/${subject.id}`)
+      await request.delete(`/api/v1/subjects/${subject.id}`, { headers })
     }
   }
 }
 
 test.describe("Сценарий 2 — Управление справочниками (CRUD)", () => {
   test.beforeEach(async ({ request }) => {
-    await cleanupTestEntities(request)
+    const adminToken = await apiLogin(request, E2E_ADMIN_USERNAME, E2E_ADMIN_PASSWORD)
+    await ensureUser(request, adminToken, {
+      username: E2E_DISPATCHER_USERNAME,
+      password: E2E_DISPATCHER_PASSWORD,
+      role: "dispatcher",
+    })
+    await cleanupTestEntities(request, adminToken)
   })
 
   test.afterEach(async ({ request }) => {
-    await cleanupTestEntities(request)
+    const adminToken = await apiLogin(request, E2E_ADMIN_USERNAME, E2E_ADMIN_PASSWORD)
+    await cleanupTestEntities(request, adminToken)
   })
 
-  test("создание учебной группы, преподавателя, аудитории и предмета через модальные окна UI", async ({
+  test("создание учебной группы, преподавателя, аудитории и предмета диспетчером через UI", async ({
     page,
   }) => {
-    // 1. Создание новой учебной группы
-    await page.goto("/groups")
+    // 1. Вход диспетчера и создание новой учебной группы
+    await loginViaUi(page, E2E_DISPATCHER_USERNAME, E2E_DISPATCHER_PASSWORD, "/groups")
+    await expect(page).toHaveURL(/\/groups$/)
     await expect(
       page.getByRole("heading", { name: "Академические группы", exact: true }),
     ).toBeVisible()

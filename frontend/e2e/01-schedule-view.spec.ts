@@ -1,4 +1,13 @@
 import { expect, test, type Page } from "@playwright/test"
+import {
+  apiLogin,
+  E2E_ADMIN_PASSWORD,
+  E2E_ADMIN_USERNAME,
+  E2E_READER_PASSWORD,
+  E2E_READER_USERNAME,
+  ensureUser,
+  loginViaUi,
+} from "./helpers/auth"
 
 async function selectFilterOption(page: Page, label: string, option: string) {
   await page.getByRole("combobox", { name: label, exact: true }).click()
@@ -6,10 +15,19 @@ async function selectFilterOption(page: Page, label: string, option: string) {
 }
 
 test.describe("Сценарий 1 — Просмотр расписания", () => {
+  test.beforeEach(async ({ request }) => {
+    const adminToken = await apiLogin(request, E2E_ADMIN_USERNAME, E2E_ADMIN_PASSWORD)
+    await ensureUser(request, adminToken, {
+      username: E2E_READER_USERNAME,
+      password: E2E_READER_PASSWORD,
+      role: "reader",
+    })
+  })
+
   test("открытие главной страницы, фильтрация по группе, преподавателю и чётности недель", async ({
     page,
   }) => {
-    await page.goto("/")
+    await loginViaUi(page, E2E_READER_USERNAME, E2E_READER_PASSWORD, "/")
     await expect(page).toHaveURL(/\/schedule$/)
     await expect(
       page.getByRole("heading", { name: "Сетка расписания", exact: true }),
