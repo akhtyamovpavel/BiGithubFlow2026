@@ -167,6 +167,7 @@ test.describe("Сценарий 5 — Авторизация, роли, истё
     await expect(
       page.getByRole("heading", { name: "Сетка расписания", exact: true }),
     ).toBeVisible()
+    await expect(page.getByRole("button", { name: "Обновить", exact: true })).toBeEnabled()
 
     // Отзываем текущую сессию на реальном API, имитируя истечение/отзыв токена
     const token = await page.evaluate(() =>
