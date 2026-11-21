@@ -1,0 +1,19 @@
+apiVersion: 1
+
+datasources:
+  - name: Loki
+    uid: loki
+    type: loki
+    access: proxy
+    url: http://loki:3100
+    isDefault: false
+    editable: false
+    jsonData:
+      maxLines: 1000
+      derivedFields:
+        - datasourceUid: loki
+          matcherType: regex
+          matcherRegex: '"request_id"\s*:\s*"([^"]+)"'
+          name: RequestID
+          url: '{service=~"app|nginx"} |= "$${__value.raw}"'
+          urlDisplayLabel: Trace request_id in Loki

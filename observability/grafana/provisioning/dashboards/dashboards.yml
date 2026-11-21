@@ -1,0 +1,15 @@
+apiVersion: 1
+
+providers:
+  - name: ScheduleService
+    orgId: 1
+    folder: ScheduleService
+    folderUid: schedule-service
+    type: file
+    disableDeletion: false
+    editable: false
+    updateIntervalSeconds: 30
+    allowUiUpdates: false
+    options:
+      path: /var/lib/grafana/dashboards
+      foldersFromFilesStructure: false
